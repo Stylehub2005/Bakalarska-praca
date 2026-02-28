@@ -1,0 +1,156 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+
+STD_CUSTOMER = "customer_id"
+
+
+def get_best_available_df():
+    # Prefer clusters (contains cluster + labels), else rfm
+    dfc = st.session_state.get("df_clusters")
+    if dfc is not None and not dfc.empty:
+        return dfc.copy(), "clusters"
+    dfr = st.session_state.get("df_rfm")
+    if dfr is not None and not dfr.empty:
+        return dfr.copy(), "rfm"
+    return None, None
+
+
+def segment_recommendation(row: pd.Series) -> str:
+    # Interpret based on avg scores; works for clusters or labels
+    # If Segment_label exists, use it.
+    label = row.get("Segment_label", None)
+    if isinstance(label, str) and label != "—":
+        if "VIP" in label or "Champion" in label:
+            return "Udržať a odmeniť: VIP program, exkluzívne ponuky, early access."
+        if "Loyal" in label or "Active" in label:
+            return "Upsell/Cross-sell: balíčky, odporúčané produkty, vernostný bonus."
+        if "Potential" in label:
+            return "Podporiť ďalší nákup: personalizované kupóny, onboarding séria."
+        if "At Risk" in label:
+            return "Reaktivácia: zľava s časovým limitom, win-back email/SMS."
+        if "Lost" in label:
+            return "Win-back alebo vyradenie: silná motivácia alebo znížiť frekvenciu kontaktu."
+        if "New" in label:
+            return "Onboarding: uvítacia kampaň, vysvetliť hodnotu, odporúčania."
+        return "Štandardná komunikácia: personalizácia podľa produktov a kategórií."
+    # Fallback: use avg RFM scores if present
+    avg_r = row.get("avg_R", None)
+    avg_f = row.get("avg_F", None)
+    avg_m = row.get("avg_M", None)
+    if all(isinstance(x, (int, float)) for x in [avg_r, avg_f, avg_m]):
+        if avg_r >= 4 and (avg_f + avg_m) >= 7:
+            return "VIP / top zákazníci: odmeny, exkluzívne ponuky, retention."
+        if avg_r <= 2 and (avg_f + avg_m) >= 7:
+            return "Rizikoví s vysokou hodnotou: reaktivácia (win-back)."
+        if avg_r <= 2 and (avg_f + avg_m) <= 5:
+            return "Stratení / nízka hodnota: obmedziť rozpočet, iba lacné kanály."
+        return "Bežní zákazníci: personalizácia a testovanie ponúk (A/B)."
+    return "Odporúčanie nie je dostupné (chýbajú údaje)."
+
+
+st.title("🎯 Marketingové odporúčania")
+
+df, mode = get_best_available_df()
+if df is None:
+    st.warning("Najprv spusti **RFM analýzu** a ideálne aj **Segmentáciu**.")
+    st.stop()
+
+st.markdown(
+    """
+Táto stránka transformuje analytické výsledky na **marketingovo interpretovateľné výstupy**:
+- prehľad segmentov/klastrov,
+- ich charakteristiky,
+- odporúčania kampaní,
+- export zoznamu zákazníkov pre cielený marketing.
+"""
+)
+
+# Decide segmentation key
+seg_key = None
+if "cluster_label" in df.columns:
+    seg_key = "cluster_label"
+elif "cluster" in df.columns:
+    seg_key = "cluster"
+elif "Segment_label" in df.columns:
+    seg_key = "Segment_label"
+else:
+    seg_key = "Segment_label"
+    df["Segment_label"] = df.get("Segment_label", "All customers")
+
+st.subheader("Prehľad segmentov")
+
+# Build segment summary
+agg_map = {
+    STD_CUSTOMER: "count",
+}
+for col in ["recency", "frequency", "monetary", "R_score", "F_score", "M_score", "RFM_sum"]:
+    if col in df.columns:
+        agg_map[col] = "mean"
+
+summary = df.groupby(seg_key).agg(agg_map).reset_index()
+summary = summary.rename(columns={STD_CUSTOMER: "customers"})
+
+total_customers = summary["customers"].sum()
+summary["share_pct"] = (summary["customers"] / total_customers) * 100
+
+# rename mean columns for clarity
+rename_cols = {}
+if "R_score" in summary.columns: rename_cols["R_score"] = "avg_R"
+if "F_score" in summary.columns: rename_cols["F_score"] = "avg_F"
+if "M_score" in summary.columns: rename_cols["M_score"] = "avg_M"
+if "RFM_sum" in summary.columns: rename_cols["RFM_sum"] = "avg_RFM_sum"
+summary = summary.rename(columns=rename_cols)
+
+# Add recommendations
+summary["recommendation"] = summary.apply(segment_recommendation, axis=1)
+
+# Sort by customers desc
+summary = summary.sort_values("customers", ascending=False)
+
+st.dataframe(summary, use_container_width=True)
+
+# Chart: segment sizes
+fig = px.bar(summary, x=seg_key, y="customers", title="Veľkosť segmentov (počet zákazníkov)")
+st.plotly_chart(fig, use_container_width=True)
+
+st.divider()
+
+# Segment drill-down + export
+st.subheader("Výber segmentu a export zákazníkov")
+
+segments = summary[seg_key].astype(str).tolist()
+selected = st.selectbox("Vyber segment", segments, index=0)
+
+df_seg = df[df[seg_key].astype(str) == str(selected)].copy()
+st.write(f"Zákazníci v segmente: **{len(df_seg):,}**")
+
+# show top customers by monetary (if present)
+if "monetary" in df_seg.columns:
+    df_seg = df_seg.sort_values("monetary", ascending=False)
+
+cols_to_show = [STD_CUSTOMER]
+for c in ["recency", "frequency", "monetary", "RFM_score", "RFM_sum", "Segment_label", "cluster", "cluster_label"]:
+    if c in df_seg.columns and c not in cols_to_show:
+        cols_to_show.append(c)
+
+st.dataframe(df_seg[cols_to_show].head(100), use_container_width=True)
+
+# export selected segment customer list
+export_cols = [STD_CUSTOMER]
+if "Segment_label" in df_seg.columns:
+    export_cols.append("Segment_label")
+if "cluster" in df_seg.columns:
+    export_cols.append("cluster")
+if "cluster_label" in df_seg.columns:
+    export_cols.append("cluster_label")
+
+csv_bytes = df_seg[export_cols].drop_duplicates().to_csv(index=False).encode("utf-8")
+st.download_button(
+    "⬇️ Download customer list (CSV)",
+    data=csv_bytes,
+    file_name=f"customers_{str(selected).replace(' ', '_')}.csv",
+    mime="text/csv"
+)
+
+st.success("✅ Marketingové insights sú pripravené. Ďalší krok: stránka **Report & Export**.")
