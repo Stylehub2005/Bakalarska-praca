@@ -1,0 +1,22 @@
+{
+  "datasets": [
+    {
+      "id": "6378c895cb006fcc",
+      "created_at": "2026-02-28 17:38:49",
+      "original_name": "online_retail_II.csv",
+      "rows": 805549,
+      "customers": 5878,
+      "min_date": "2009-12-01 07:45:00",
+      "max_date": "2011-12-09 12:50:00",
+      "mapping": {
+        "customer_col": "Customer ID",
+        "date_col": "InvoiceDate",
+        "amount_mode": "Compute as Quantity × Price",
+        "amount_col": null,
+        "qty_col": "Quantity",
+        "price_col": "Price"
+      }
+    }
+  ],
+  "active_dataset_id": "6378c895cb006fcc"
+}
