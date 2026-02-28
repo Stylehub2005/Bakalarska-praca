@@ -1,13 +1,13 @@
 {
   "algorithm": "K-Means",
   "k": 4,
-  "random_state": 42,
+  "random_state": 30,
   "scaler": "StandardScaler",
   "features": [
     "recency",
     "frequency",
     "monetary"
   ],
-  "inertia": 6173.826838584688,
-  "silhouette": 0.6099472657149506
+  "inertia": 6021.062324417698,
+  "silhouette": 0.6079450130991808
 }

@@ -10,6 +10,40 @@ from sklearn.metrics import silhouette_score
 
 STD_CUSTOMER = "customer_id"
 ANALYSES_DIR = "data/analyses"
+SETTINGS_PATH = "data/settings.json"
+
+DEFAULT_SETTINGS = {
+    "rfm_weights": {"R": 1.0, "F": 1.0, "M": 1.0},
+    "default_scaler": "StandardScaler",
+    "auto_k": {"k_min": 2, "k_max": 10},
+    "segmentation_default_algorithm": "K-Means",
+}
+
+
+def load_settings() -> dict:
+    s = st.session_state.get("settings")
+    if isinstance(s, dict):
+        merged = DEFAULT_SETTINGS.copy()
+        merged.update(s)
+        merged["rfm_weights"] = {**DEFAULT_SETTINGS["rfm_weights"], **merged.get("rfm_weights", {})}
+        merged["auto_k"] = {**DEFAULT_SETTINGS["auto_k"], **merged.get("auto_k", {})}
+        return merged
+
+    if os.path.exists(SETTINGS_PATH):
+        try:
+            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                s2 = json.load(f)
+            merged = DEFAULT_SETTINGS.copy()
+            merged.update(s2)
+            merged["rfm_weights"] = {**DEFAULT_SETTINGS["rfm_weights"], **merged.get("rfm_weights", {})}
+            merged["auto_k"] = {**DEFAULT_SETTINGS["auto_k"], **merged.get("auto_k", {})}
+            st.session_state["settings"] = merged
+            return merged
+        except Exception:
+            pass
+
+    st.session_state["settings"] = DEFAULT_SETTINGS.copy()
+    return DEFAULT_SETTINGS.copy()
 
 
 def rfm_path(dataset_id: str) -> str:
@@ -61,23 +95,50 @@ def delete_clusters_from_disk(dataset_id: str) -> None:
         os.remove(mp)
 
 
-def prepare_features(df_rfm: pd.DataFrame, features: list[str], scaler_name: str):
+def scaler_from_name(name: str):
+    return StandardScaler() if name == "StandardScaler" else MinMaxScaler()
+
+
+def feature_weight_multiplier(feature: str, weights: dict) -> float:
+    """
+    Apply R/F/M weights to both raw metrics and score metrics.
+    """
+    wR = float(weights.get("R", 1.0))
+    wF = float(weights.get("F", 1.0))
+    wM = float(weights.get("M", 1.0))
+
+    f = feature.lower()
+    if f in ["recency", "r_score", "r_weighted"]:
+        return wR
+    if f in ["frequency", "f_score", "f_weighted"]:
+        return wF
+    if f in ["monetary", "m_score", "m_weighted"]:
+        return wM
+    # combined scores: keep 1.0 (or could use average)
+    return 1.0
+
+
+def prepare_features(df_rfm: pd.DataFrame, features: list[str], scaler_name: str, weights: dict):
     X = df_rfm[features].copy()
     X = X.replace([float("inf"), float("-inf")], pd.NA).dropna()
 
-    scaler = StandardScaler() if scaler_name == "StandardScaler" else MinMaxScaler()
-    X_scaled = scaler.fit_transform(X)
+    # Apply weights BEFORE scaling (so weights actually influence distances)
+    for col in features:
+        mult = feature_weight_multiplier(col, weights)
+        if mult != 1.0:
+            X[col] = pd.to_numeric(X[col], errors="coerce") * mult
 
+    X = X.dropna()
+    scaler = scaler_from_name(scaler_name)
+    X_scaled = scaler.fit_transform(X)
     return X, X_scaled
 
 
 def compute_silhouette(X_scaled, labels) -> float | None:
-    # silhouette requires at least 2 clusters (excluding noise label -1)
     uniq = set(labels)
     non_noise = [u for u in uniq if u != -1]
     if len(non_noise) < 2:
         return None
-    # also need enough samples
     if len(labels) <= len(non_noise):
         return None
     try:
@@ -88,18 +149,23 @@ def compute_silhouette(X_scaled, labels) -> float | None:
 
 def add_cluster_label(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
+
     def to_label(x):
         try:
             xi = int(x)
         except Exception:
             return str(x)
         return "Noise / Outliers" if xi == -1 else f"Cluster {xi}"
+
     out["cluster_label"] = out["cluster"].apply(to_label)
     out["is_noise"] = out["cluster"].astype(int) == -1
     return out
 
 
 st.title("🧠 Segmentácia zákazníkov")
+
+settings = load_settings()
+weights = settings.get("rfm_weights", {"R": 1.0, "F": 1.0, "M": 1.0})
 
 dataset_id = st.session_state.get("active_dataset_id")
 if not dataset_id:
@@ -112,22 +178,34 @@ if df_rfm is None or df_rfm.empty:
     st.stop()
 
 st.markdown(
-    """
-Táto stránka vykoná **zhlukovú analýzu** zákazníkov na základe RFM metrík.
+    f"""
+Táto stránka vykoná zhlukovú analýzu zákazníkov na základe RFM metrík.
 
-Podporované algoritmy:
-- **K-Means** (centroid-based, vyžaduje počet klastrov k)
-- **DBSCAN** (density-based, vie nájsť aj *noise/outliers*)
-- **Hierarchical / Agglomerative** (hierarchické zhlukovanie)
-
-Výsledok sa ukladá do histórie (`data/analyses/`).
+✅ Nastavené váhy: **R={weights.get('R',1.0):.1f}, F={weights.get('F',1.0):.1f}, M={weights.get('M',1.0):.1f}**  
+Váhy sa aplikujú na vybrané features pred škálovaním, čím ovplyvňujú vzdialenosti a výsledné klastre.
 """
 )
+
+# Defaults from settings
+default_scaler = settings.get("default_scaler", "StandardScaler")
+default_algo = settings.get("segmentation_default_algorithm", "K-Means")
+
+k_min_cfg = int(settings.get("auto_k", {}).get("k_min", 2))
+k_max_cfg = int(settings.get("auto_k", {}).get("k_max", 10))
+k_min_cfg = max(2, min(k_min_cfg, 10))
+k_max_cfg = max(k_min_cfg + 1, min(k_max_cfg, 15))
+
+auto = st.session_state.get("auto_k_results", {})
+best_k = auto.get("best_k_silhouette", None)
+if isinstance(best_k, int):
+    best_k = max(k_min_cfg, min(best_k, k_max_cfg))
+else:
+    best_k = None
 
 # ---------------- Controls ----------------
 st.subheader("Nastavenie segmentácie")
 
-features_all = ["recency", "frequency", "monetary", "R_score", "F_score", "M_score", "RFM_sum"]
+features_all = ["recency", "frequency", "monetary", "R_score", "F_score", "M_score", "RFM_sum", "RFM_weighted_sum"]
 default_features = ["recency", "frequency", "monetary"]
 
 features = st.multiselect(
@@ -136,12 +214,17 @@ features = st.multiselect(
     default=default_features
 )
 
-scaler_name = st.selectbox("Normalizácia", ["StandardScaler", "MinMaxScaler"], index=0)
+scaler_name = st.selectbox(
+    "Normalizácia",
+    ["StandardScaler", "MinMaxScaler"],
+    index=["StandardScaler", "MinMaxScaler"].index(default_scaler) if default_scaler in ["StandardScaler", "MinMaxScaler"] else 0
+)
 
+algo_options = ["K-Means", "DBSCAN", "Hierarchical (Agglomerative)"]
 algorithm = st.selectbox(
     "Algoritmus",
-    ["K-Means", "DBSCAN", "Hierarchical (Agglomerative)"],
-    index=0
+    algo_options,
+    index=algo_options.index(default_algo) if default_algo in algo_options else 0
 )
 
 # Parameters per algorithm
@@ -153,18 +236,21 @@ linkage = None
 metric = None
 
 if algorithm == "K-Means":
-    k = st.slider("Počet klastrov (k)", min_value=2, max_value=10, value=4)
+    default_k_val = best_k if best_k is not None else 4
+    default_k_val = max(k_min_cfg, min(default_k_val, k_max_cfg))
+    k = st.slider("Počet klastrov (k)", min_value=k_min_cfg, max_value=k_max_cfg, value=default_k_val)
     random_state = st.number_input("Random state", min_value=0, max_value=100_000, value=42, step=1)
 
 elif algorithm == "DBSCAN":
-    st.caption("Tip: DBSCAN je citlivý na škálovanie, preto normalizácia je dôležitá.")
+    st.caption("Tip: DBSCAN je citlivý na škálovanie. Skús najprv StandardScaler.")
     eps = st.slider("eps (radius)", min_value=0.05, max_value=5.0, value=0.5, step=0.05)
     min_samples = st.slider("min_samples", min_value=2, max_value=50, value=10, step=1)
 
 else:  # Hierarchical
-    k = st.slider("Počet klastrov (k)", min_value=2, max_value=10, value=4)
+    default_k_val = best_k if best_k is not None else 4
+    default_k_val = max(k_min_cfg, min(default_k_val, k_max_cfg))
+    k = st.slider("Počet klastrov (k)", min_value=k_min_cfg, max_value=k_max_cfg, value=default_k_val)
     linkage = st.selectbox("Linkage", ["ward", "complete", "average", "single"], index=0)
-    # ward requires euclidean
     if linkage == "ward":
         metric = "euclidean"
         st.info("Linkage 'ward' vyžaduje metrickú vzdialenosť 'euclidean'.")
@@ -200,7 +286,6 @@ if load_saved:
         st.session_state["cluster_meta"] = loaded_meta or {}
         st.success("Uložené klastre boli načítané (bez prepočtu).")
 
-# Autoload once
 if "df_clusters" not in st.session_state and saved_exists:
     auto_df, auto_meta = load_clusters_from_disk(dataset_id)
     if auto_df is not None and not auto_df.empty:
@@ -210,7 +295,7 @@ if "df_clusters" not in st.session_state and saved_exists:
 
 # ---------------- Run segmentation ----------------
 if run_cluster:
-    X_raw, X_scaled = prepare_features(df_rfm, features, scaler_name)
+    X_raw, X_scaled = prepare_features(df_rfm, features, scaler_name, weights)
     df_aligned = df_rfm.loc[X_raw.index].copy()
 
     inertia = None
@@ -227,6 +312,7 @@ if run_cluster:
             "random_state": int(random_state),
             "scaler": scaler_name,
             "features": features,
+            "rfm_weights": weights,
             "inertia": inertia,
         }
 
@@ -240,17 +326,15 @@ if run_cluster:
             "min_samples": int(min_samples),
             "scaler": scaler_name,
             "features": features,
+            "rfm_weights": weights,
             "inertia": None,
         }
 
-    else:  # Hierarchical / Agglomerative
-        # sklearn API: metric parameter (ward only euclidean)
+    else:
         try:
             model = AgglomerativeClustering(n_clusters=int(k), linkage=str(linkage), metric=str(metric))
         except TypeError:
-            # older versions used 'affinity'
             model = AgglomerativeClustering(n_clusters=int(k), linkage=str(linkage), affinity=str(metric))
-
         labels = model.fit_predict(X_scaled)
 
         meta = {
@@ -260,15 +344,14 @@ if run_cluster:
             "metric": str(metric),
             "scaler": scaler_name,
             "features": features,
+            "rfm_weights": weights,
             "inertia": None,
         }
 
-    # Build output
     df_clusters = df_aligned.copy()
     df_clusters["cluster"] = labels
     df_clusters = add_cluster_label(df_clusters)
 
-    # Quality metrics
     sil = compute_silhouette(X_scaled, labels)
     meta["silhouette"] = sil
 
@@ -294,21 +377,13 @@ sil_val = meta.get("silhouette")
 c3.metric("Silhouette", f"{sil_val:.3f}" if isinstance(sil_val, float) else "—")
 c4.metric("Scaler", meta.get("scaler", "—"))
 st.caption(f"Features: {meta.get('features', [])}")
+st.caption(f"Applied weights: {meta.get('rfm_weights', {})}")
 
-# Quick counts (incl. noise)
 st.subheader("Počty zákazníkov v klastroch")
 counts = df_clusters["cluster_label"].value_counts().reset_index()
 counts.columns = ["cluster_label", "customers"]
 st.dataframe(counts, use_container_width=True)
 
-st.subheader("Zákazníci s priradeným klastrom (top 50)")
-sort_cols = ["cluster", "monetary"] if "monetary" in df_clusters.columns else ["cluster"]
-st.dataframe(
-    df_clusters.sort_values(sort_cols, ascending=[True, False] if len(sort_cols) == 2 else True).head(50),
-    use_container_width=True,
-)
-
-# Cluster profiles
 st.subheader("Profil klastrov (priemery)")
 profile = (
     df_clusters.groupby("cluster_label")
@@ -321,6 +396,7 @@ profile = (
         avg_F=("F_score", "mean"),
         avg_M=("M_score", "mean"),
         avg_RFM_sum=("RFM_sum", "mean"),
+        avg_RFM_weighted=("RFM_weighted_sum", "mean") if "RFM_weighted_sum" in df_clusters.columns else ("RFM_sum", "mean"),
         noise=("is_noise", "sum"),
     )
     .reset_index()
@@ -328,9 +404,7 @@ profile = (
 )
 st.dataframe(profile, use_container_width=True)
 
-# Visualizations
 st.subheader("Vizualizácia klastrov")
-
 colA, colB = st.columns(2)
 with colA:
     x_axis = st.selectbox("X axis", ["recency", "frequency", "monetary"], index=0)
@@ -338,7 +412,7 @@ with colB:
     y_axis = st.selectbox("Y axis", ["recency", "frequency", "monetary"], index=2)
 
 hover_cols = [STD_CUSTOMER]
-for c in ["RFM_score", "RFM_sum", "Segment_label", "cluster_label"]:
+for c in ["RFM_score", "RFM_sum", "RFM_weighted_sum", "Segment_label", "cluster_label"]:
     if c in df_clusters.columns:
         hover_cols.append(c)
 

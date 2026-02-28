@@ -1,4 +1,5 @@
 import os
+import json
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -8,6 +9,41 @@ STD_DATE = "transaction_date"
 STD_AMOUNT = "amount"
 
 ANALYSES_DIR = "data/analyses"
+SETTINGS_PATH = "data/settings.json"
+
+DEFAULT_SETTINGS = {
+    "rfm_weights": {"R": 1.0, "F": 1.0, "M": 1.0},
+    "default_scaler": "StandardScaler",
+    "auto_k": {"k_min": 2, "k_max": 10},
+    "segmentation_default_algorithm": "K-Means",
+}
+
+
+def load_settings() -> dict:
+    # Prefer session (so changes apply immediately), else load from file
+    s = st.session_state.get("settings")
+    if isinstance(s, dict):
+        merged = DEFAULT_SETTINGS.copy()
+        merged.update(s)
+        merged["rfm_weights"] = {**DEFAULT_SETTINGS["rfm_weights"], **merged.get("rfm_weights", {})}
+        merged["auto_k"] = {**DEFAULT_SETTINGS["auto_k"], **merged.get("auto_k", {})}
+        return merged
+
+    if os.path.exists(SETTINGS_PATH):
+        try:
+            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                s2 = json.load(f)
+            merged = DEFAULT_SETTINGS.copy()
+            merged.update(s2)
+            merged["rfm_weights"] = {**DEFAULT_SETTINGS["rfm_weights"], **merged.get("rfm_weights", {})}
+            merged["auto_k"] = {**DEFAULT_SETTINGS["auto_k"], **merged.get("auto_k", {})}
+            st.session_state["settings"] = merged
+            return merged
+        except Exception:
+            pass
+
+    st.session_state["settings"] = DEFAULT_SETTINGS.copy()
+    return DEFAULT_SETTINGS.copy()
 
 
 def rfm_path(dataset_id: str) -> str:
@@ -30,10 +66,12 @@ def compute_rfm(df: pd.DataFrame, snapshot_date: pd.Timestamp) -> pd.DataFrame:
 def rfm_scoring_quintiles(rfm: pd.DataFrame) -> pd.DataFrame:
     scored = rfm.copy()
 
+    # stabilize qcut with ranks
     scored["_r_rank"] = scored["recency"].rank(method="first")
     scored["_f_rank"] = scored["frequency"].rank(method="first")
     scored["_m_rank"] = scored["monetary"].rank(method="first")
 
+    # Recency reversed: smaller recency => higher score
     scored["R_score"] = pd.qcut(scored["_r_rank"], 5, labels=[5, 4, 3, 2, 1]).astype(int)
     scored["F_score"] = pd.qcut(scored["_f_rank"], 5, labels=[1, 2, 3, 4, 5]).astype(int)
     scored["M_score"] = pd.qcut(scored["_m_rank"], 5, labels=[1, 2, 3, 4, 5]).astype(int)
@@ -47,29 +85,55 @@ def rfm_scoring_quintiles(rfm: pd.DataFrame) -> pd.DataFrame:
     return scored
 
 
-def describe_segments(scored: pd.DataFrame) -> pd.DataFrame:
+def add_weighted_scores(scored: pd.DataFrame, weights: dict) -> pd.DataFrame:
+    wR = float(weights.get("R", 1.0))
+    wF = float(weights.get("F", 1.0))
+    wM = float(weights.get("M", 1.0))
+
     df = scored.copy()
-    df["FM_sum"] = df["F_score"] + df["M_score"]
+    df["R_weighted"] = df["R_score"] * wR
+    df["F_weighted"] = df["F_score"] * wF
+    df["M_weighted"] = df["M_score"] * wM
+    df["FM_weighted"] = df["F_weighted"] + df["M_weighted"]
+    df["RFM_weighted_sum"] = df["R_weighted"] + df["F_weighted"] + df["M_weighted"]
+    return df
+
+
+def describe_segments_weighted(scored: pd.DataFrame, weights: dict) -> pd.DataFrame:
+    """
+    Marketing labels driven by weighted scores.
+    Thresholds are proportional to maximum possible weighted values.
+    """
+    wR = float(weights.get("R", 1.0))
+    wF = float(weights.get("F", 1.0))
+    wM = float(weights.get("M", 1.0))
+
+    max_R = 5.0 * wR
+    max_FM = 5.0 * wF + 5.0 * wM
+
+    df = scored.copy()
 
     def label(row):
-        r = row["R_score"]
-        fm = row["FM_sum"]
-        if r >= 4 and fm >= 8:
+        r = row["R_weighted"]
+        fm = row["FM_weighted"]
+
+        # proportional thresholds
+        if r >= 0.8 * max_R and fm >= 0.8 * max_FM:
             return "VIP / Champions"
-        if r >= 4 and fm >= 6:
+        if r >= 0.8 * max_R and fm >= 0.6 * max_FM:
             return "Loyal / Active"
-        if r >= 3 and fm >= 6:
+        if r >= 0.6 * max_R and fm >= 0.6 * max_FM:
             return "Potential Loyalists"
-        if r <= 2 and fm >= 7:
+        if r <= 0.4 * max_R and fm >= 0.7 * max_FM:
             return "At Risk (High value)"
-        if r <= 2 and fm <= 4:
+        if r <= 0.4 * max_R and fm <= 0.4 * max_FM:
             return "Lost"
-        if r >= 4 and fm <= 4:
+        if r >= 0.8 * max_R and fm <= 0.4 * max_FM:
             return "New / Low spend"
         return "Regular"
 
     df["Segment_label"] = df.apply(label, axis=1)
-    return df.drop(columns=["FM_sum"])
+    return df
 
 
 def save_rfm_to_disk(df_rfm: pd.DataFrame, dataset_id: str) -> None:
@@ -92,6 +156,9 @@ def delete_rfm_from_disk(dataset_id: str) -> None:
 
 st.title("📊 RFM analýza")
 
+settings = load_settings()
+weights = settings.get("rfm_weights", {"R": 1.0, "F": 1.0, "M": 1.0})
+
 df = st.session_state.get("df_transactions")
 dataset_id = st.session_state.get("active_dataset_id")
 
@@ -104,17 +171,17 @@ if not dataset_id:
     st.stop()
 
 st.markdown(
-    """
+    f"""
 RFM analýza vypočíta:
 - **Recency** – dni od posledného nákupu (nižšie = lepšie)
 - **Frequency** – počet transakcií (vyššie = lepšie)
 - **Monetary** – celková útrata (vyššie = lepšie)
 
-Táto stránka podporuje **históriu analýz**: výsledok sa ukladá do `data/analyses/` a dá sa načítať bez prepočtu.
+✅ Nastavené váhy (zo stránky Nastavenia): **R={weights.get('R',1.0):.1f}, F={weights.get('F',1.0):.1f}, M={weights.get('M',1.0):.1f}**  
+Výsledkom je aj **RFM_weighted_sum** a marketingové labely založené na vážených skóre.
 """
 )
 
-# Snapshot date selection
 min_date = df[STD_DATE].min()
 max_date = df[STD_DATE].max()
 default_snapshot = (max_date + pd.Timedelta(days=1)).date()
@@ -127,7 +194,6 @@ snapshot_date_ui = st.date_input(
 )
 snapshot_date = pd.to_datetime(snapshot_date_ui)
 
-# Buttons row
 saved_exists = os.path.exists(rfm_path(dataset_id))
 col1, col2, col3, col4 = st.columns([1.2, 1.2, 1.2, 2])
 
@@ -140,40 +206,36 @@ with col3:
 with col4:
     st.caption(f"Aktívny dataset ID: `{dataset_id}` | uložený RFM: {'áno' if saved_exists else 'nie'}")
 
-# Delete saved
 if delete_saved:
     delete_rfm_from_disk(dataset_id)
     st.session_state.pop("df_rfm", None)
     st.success("Uložený RFM bol zmazaný.")
     st.rerun()
 
-# Load saved
 if load_saved:
     loaded = load_rfm_from_disk(dataset_id)
     if loaded is None or loaded.empty:
-        st.warning("Uložený RFM sa nepodarilo načítať (súbor chýba alebo je prázdny).")
+        st.warning("Uložený RFM sa nepodarilo načítať.")
     else:
         st.session_state["df_rfm"] = loaded
         st.success("Uložený RFM bol načítaný (bez prepočtu).")
 
-# Run calculation
 if run_calc:
     rfm = compute_rfm(df, snapshot_date)
     rfm_scored = rfm_scoring_quintiles(rfm)
-    rfm_scored = describe_segments(rfm_scored)
+    rfm_scored = add_weighted_scores(rfm_scored, weights)
+    rfm_scored = describe_segments_weighted(rfm_scored, weights)
 
     st.session_state["df_rfm"] = rfm_scored
     save_rfm_to_disk(rfm_scored, dataset_id)
-
     st.success("RFM bol vypočítaný a uložený do histórie.")
-    # не rerun — чтобы сразу показать результаты ниже
 
-# If nothing in session yet, try autoload once
+# autoload once if no session
 if "df_rfm" not in st.session_state:
     auto = load_rfm_from_disk(dataset_id)
     if auto is not None and not auto.empty:
         st.session_state["df_rfm"] = auto
-        st.info("Našiel som uložený RFM a načítal som ho automaticky. (Môžeš prepočítať tlačidlom vyššie.)")
+        st.info("Našiel som uložený RFM a načítal som ho automaticky.")
 
 df_rfm = st.session_state.get("df_rfm")
 if df_rfm is None or df_rfm.empty:
@@ -181,8 +243,9 @@ if df_rfm is None or df_rfm.empty:
     st.stop()
 
 # ----- OUTPUTS -----
-st.subheader("RFM table (top 50 by RFM_sum)")
-st.dataframe(df_rfm.sort_values("RFM_sum", ascending=False).head(50), use_container_width=True)
+st.subheader("RFM table (top 50 by RFM_weighted_sum)")
+sort_col = "RFM_weighted_sum" if "RFM_weighted_sum" in df_rfm.columns else "RFM_sum"
+st.dataframe(df_rfm.sort_values(sort_col, ascending=False).head(50), use_container_width=True)
 
 st.subheader("Summary")
 c1, c2, c3, c4 = st.columns(4)
@@ -210,7 +273,7 @@ seg_counts = (
     .rename_axis("Segment_label")
     .reset_index(name="count")
 )
-st.plotly_chart(px.bar(seg_counts, x="Segment_label", y="count", title="Customers per segment (rule-based labels)"),
+st.plotly_chart(px.bar(seg_counts, x="Segment_label", y="count", title="Customers per segment (weighted labels)"),
                 use_container_width=True)
 
 st.subheader("Segment characteristics (average metrics)")
@@ -224,6 +287,8 @@ seg_profile = (
         avg_R=("R_score", "mean"),
         avg_F=("F_score", "mean"),
         avg_M=("M_score", "mean"),
+        avg_RFM_sum=("RFM_sum", "mean"),
+        avg_RFM_weighted=("RFM_weighted_sum", "mean"),
     )
     .reset_index()
     .sort_values("customers", ascending=False)

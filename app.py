@@ -13,3 +13,4 @@ Welcome to the analytical platform for customer segmentation.
 
 Use the sidebar to navigate through the analysis steps.
 """)
+#streamlit run app.py
