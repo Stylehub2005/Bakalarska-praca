@@ -1,0 +1,13 @@
+{
+  "rfm_weights": {
+    "R": 1.3,
+    "F": 1.0,
+    "M": 1.0
+  },
+  "default_scaler": "StandardScaler",
+  "auto_k": {
+    "k_min": 2,
+    "k_max": 10
+  },
+  "segmentation_default_algorithm": "K-Means"
+}

@@ -56,7 +56,7 @@ def scaler_from_name(name: str):
     return StandardScaler() if name == "StandardScaler" else MinMaxScaler()
 
 
-st.title("⚙ Nastavenia segmentácie")
+st.title("⚙ Nastavenia         ")
 
 st.markdown(
     """

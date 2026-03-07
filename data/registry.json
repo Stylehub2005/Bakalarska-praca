@@ -1,8 +1,25 @@
 {
   "datasets": [
     {
+      "id": "7c58cb2041d7ae79",
+      "created_at": "2026-03-07 23:16:24",
+      "original_name": "online_retail_II.csv",
+      "rows": 824293,
+      "customers": 5939,
+      "min_date": "2009-12-01 07:45:00",
+      "max_date": "2011-12-09 12:50:00",
+      "mapping": {
+        "customer_col": "Customer ID",
+        "date_col": "InvoiceDate",
+        "amount_mode": "Amount column exists",
+        "amount_col": "Price",
+        "qty_col": null,
+        "price_col": null
+      }
+    },
+    {
       "id": "6378c895cb006fcc",
-      "created_at": "2026-02-28 21:13:00",
+      "created_at": "2026-03-07 23:16:04",
       "original_name": "online_retail_II.csv",
       "rows": 805549,
       "customers": 5878,
@@ -18,5 +35,5 @@
       }
     }
   ],
-  "active_dataset_id": "6378c895cb006fcc"
+  "active_dataset_id": "7c58cb2041d7ae79"
 }
