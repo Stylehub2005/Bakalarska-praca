@@ -19,7 +19,6 @@ DEFAULT_SETTINGS = {
     "segmentation_default_algorithm": "K-Means",
 }
 
-
 # ---------------- SETTINGS ----------------
 
 def load_settings():
@@ -28,14 +27,11 @@ def load_settings():
     if isinstance(s, dict):
         merged = DEFAULT_SETTINGS.copy()
         merged.update(s)
-        merged["rfm_weights"] = {**DEFAULT_SETTINGS["rfm_weights"], **merged.get("rfm_weights", {})}
-        merged["auto_k"] = {**DEFAULT_SETTINGS["auto_k"], **merged.get("auto_k", {})}
         return merged
 
     if os.path.exists(SETTINGS_PATH):
         with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
             s2 = json.load(f)
-
         merged = DEFAULT_SETTINGS.copy()
         merged.update(s2)
         st.session_state["settings"] = merged
@@ -43,67 +39,38 @@ def load_settings():
 
     return DEFAULT_SETTINGS
 
-
-# ---------------- PATHS ----------------
-
-def rfm_path(dataset_id):
-    return os.path.join(ANALYSES_DIR, f"{dataset_id}_rfm.parquet")
-
-
-def clusters_path(dataset_id):
-    return os.path.join(ANALYSES_DIR, f"{dataset_id}_clusters.parquet")
-
-
-# ---------------- LOAD RFM ----------------
+# ---------------- LOAD ----------------
 
 def load_rfm(dataset_id):
-
-    df_rfm = st.session_state.get("df_rfm")
-
-    if df_rfm is not None:
-        return df_rfm
-
-    path = rfm_path(dataset_id)
-
+    df = st.session_state.get("df_rfm")
+    if df is not None:
+        return df
+    path = os.path.join(ANALYSES_DIR, f"{dataset_id}_rfm.parquet")
     if os.path.exists(path):
         return pd.read_parquet(path)
-
     return None
 
-
-# ---------------- SCALER ----------------
+# ---------------- PREP ----------------
 
 def scaler_from_name(name):
-
-    if name == "StandardScaler":
-        return StandardScaler()
-
-    return MinMaxScaler()
-
-
-# ---------------- FEATURE PREP ----------------
+    return StandardScaler() if name == "StandardScaler" else MinMaxScaler()
 
 def prepare_features(df_rfm, features, scaler_name, weights):
 
     X = df_rfm[features].copy()
 
     for col in features:
-
         if "recency" in col:
             X[col] *= weights.get("R", 1)
-
         if "frequency" in col:
             X[col] *= weights.get("F", 1)
-
         if "monetary" in col:
             X[col] *= weights.get("M", 1)
 
     scaler = scaler_from_name(scaler_name)
-
     X_scaled = scaler.fit_transform(X)
 
-    return X, X_scaled
-
+    return X_scaled
 
 # ---------------- AUTO K ----------------
 
@@ -120,7 +87,6 @@ def compute_k_metrics(X_scaled, k_min, k_max):
         inertia = model.inertia_
 
         sil = None
-
         try:
             sil = silhouette_score(X_scaled, labels)
         except:
@@ -134,13 +100,11 @@ def compute_k_metrics(X_scaled, k_min, k_max):
 
     return pd.DataFrame(results)
 
-
 # ---------------- UI ----------------
 
 st.title("🧠 Segmentácia zákazníkov")
 
 settings = load_settings()
-
 weights = settings["rfm_weights"]
 
 dataset_id = st.session_state.get("active_dataset_id")
@@ -155,20 +119,14 @@ if df_rfm is None:
     st.warning("Run RFM analysis first")
     st.stop()
 
-
 # ---------------- CONTROLS ----------------
 
 st.subheader("Segmentation settings")
 
 features_all = [
-    "recency",
-    "frequency",
-    "monetary",
-    "R_score",
-    "F_score",
-    "M_score",
-    "RFM_sum",
-    "RFM_weighted_sum",
+    "recency", "frequency", "monetary",
+    "R_score", "F_score", "M_score",
+    "RFM_sum", "RFM_weighted_sum"
 ]
 
 features = st.multiselect(
@@ -191,29 +149,51 @@ k_min = settings["auto_k"]["k_min"]
 k_max = settings["auto_k"]["k_max"]
 
 k = None
-
 if algorithm in ["K-Means", "Hierarchical"]:
     k = st.slider("Number of clusters", k_min, k_max, 4)
 
-run_cluster = st.button("▶️ Run segmentation")
+# ---------------- BUTTONS ----------------
 
-auto_k_button = st.button("🔍 Auto detect optimal k")
+col1, col2, col3 = st.columns(3)
 
+with col1:
+    run_cluster = st.button("▶️ Run segmentation", type="primary")
+
+with col2:
+    auto_k_button = st.button("🔍 Auto detect optimal k")
+
+with col3:
+    reset_button = st.button("🔄 Reset")
+
+# ---------------- RESET ----------------
+
+if reset_button:
+
+    st.session_state.pop("df_clusters", None)
+    st.session_state.pop("k_metrics", None)
+    st.session_state.pop("best_k", None)
+
+    st.success("Settings reset")
+
+    st.rerun()
+
+# ---------------- WARNING ----------------
+
+if "df_clusters" in st.session_state:
+    st.info("⚠️ Segmentation already computed. Press RESET to change parameters.")
 
 # ---------------- AUTO K ----------------
 
 if auto_k_button:
 
-    X_raw, X_scaled = prepare_features(df_rfm, features, scaler_name, weights)
+    X_scaled = prepare_features(df_rfm, features, scaler_name, weights)
 
     k_metrics = compute_k_metrics(X_scaled, k_min, k_max)
 
     st.session_state["k_metrics"] = k_metrics
 
-    best_row = k_metrics.sort_values("silhouette", ascending=False).iloc[0]
-
-    st.session_state["best_k"] = int(best_row["k"])
-
+    best = k_metrics.sort_values("silhouette", ascending=False).iloc[0]
+    st.session_state["best_k"] = int(best["k"])
 
 k_metrics = st.session_state.get("k_metrics")
 
@@ -224,57 +204,28 @@ if k_metrics is not None:
     col1, col2 = st.columns(2)
 
     with col1:
-
-        fig = px.line(
-            k_metrics,
-            x="k",
-            y="inertia",
-            markers=True,
-            title="Elbow method"
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(px.line(k_metrics, x="k", y="inertia", markers=True))
 
     with col2:
-
-        fig = px.line(
-            k_metrics,
-            x="k",
-            y="silhouette",
-            markers=True,
-            title="Silhouette score"
-        )
-
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(px.line(k_metrics, x="k", y="silhouette", markers=True))
 
     best_k = st.session_state.get("best_k")
-
     if best_k:
         st.success(f"Recommended k = {best_k}")
 
-
-# ---------------- RUN SEGMENTATION ----------------
+# ---------------- RUN ----------------
 
 if run_cluster:
 
-    X_raw, X_scaled = prepare_features(df_rfm, features, scaler_name, weights)
+    X_scaled = prepare_features(df_rfm, features, scaler_name, weights)
 
     if algorithm == "K-Means":
-
         model = KMeans(n_clusters=k, random_state=42, n_init="auto")
 
-        labels = model.fit_predict(X_scaled)
-
     elif algorithm == "DBSCAN":
-
         model = DBSCAN()
 
-        labels = model.fit_predict(X_scaled)
-
     else:
-
-        # FIXED HIERARCHICAL CLUSTERING
-
         model = AgglomerativeClustering(
             n_clusters=k,
             linkage="ward",
@@ -282,83 +233,54 @@ if run_cluster:
             distance_threshold=None
         )
 
-        labels = model.fit_predict(X_scaled)
+    labels = model.fit_predict(X_scaled)
 
     df_clusters = df_rfm.copy()
-
     df_clusters["cluster"] = labels
 
     st.session_state["df_clusters"] = df_clusters
 
     st.success("Segmentation completed")
 
+# ---------------- OUTPUT ----------------
 
 df_clusters = st.session_state.get("df_clusters")
 
 if df_clusters is None:
     st.stop()
 
-
-# ---------------- CLUSTER SIZE ----------------
-
+# Cluster size
 st.subheader("Cluster sizes")
 
 counts = df_clusters["cluster"].value_counts().reset_index()
-
 counts.columns = ["cluster", "customers"]
 
-st.dataframe(counts, use_container_width=True)
+st.dataframe(counts)
+st.plotly_chart(px.bar(counts, x="cluster", y="customers"))
 
-fig = px.bar(
-    counts,
-    x="cluster",
-    y="customers",
-    title="Cluster size"
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-
-# ---------------- PROFILE ----------------
-
+# Profile
 st.subheader("Cluster profile")
 
-profile = (
-    df_clusters
-    .groupby("cluster")
-    .agg(
-        customers=(STD_CUSTOMER, "count"),
-        avg_recency=("recency", "mean"),
-        avg_frequency=("frequency", "mean"),
-        avg_monetary=("monetary", "mean"),
-    )
-    .reset_index()
-)
+profile = df_clusters.groupby("cluster").agg(
+    customers=(STD_CUSTOMER, "count"),
+    avg_recency=("recency", "mean"),
+    avg_frequency=("frequency", "mean"),
+    avg_monetary=("monetary", "mean"),
+).reset_index()
 
-st.dataframe(profile, use_container_width=True)
+st.dataframe(profile)
 
+# Visualization
+st.subheader("Visualization")
 
-# ---------------- VISUALIZATION ----------------
+st.plotly_chart(px.scatter(df_clusters, x="recency", y="monetary", color="cluster"))
 
-st.subheader("Cluster visualization")
-
-fig = px.scatter(
-    df_clusters,
-    x="recency",
-    y="monetary",
-    color="cluster",
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-fig3d = px.scatter_3d(
+st.plotly_chart(px.scatter_3d(
     df_clusters,
     x="recency",
     y="frequency",
     z="monetary",
-    color="cluster",
-)
-
-st.plotly_chart(fig3d, use_container_width=True)
+    color="cluster"
+))
 
 st.success("Segmentation ready")

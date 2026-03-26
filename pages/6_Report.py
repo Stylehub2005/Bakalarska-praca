@@ -1,5 +1,7 @@
 import os
 import json
+import zipfile
+import io
 import streamlit as st
 import pandas as pd
 
@@ -11,9 +13,21 @@ DATA_DIR = "data"
 ANALYSES_DIR = os.path.join(DATA_DIR, "analyses")
 
 
+# ---------------- PATHS ----------------
+
 def dataset_registry_path():
     return os.path.join(DATA_DIR, "registry.json")
 
+
+def rfm_path(dataset_id):
+    return os.path.join(ANALYSES_DIR, f"{dataset_id}_rfm.parquet")
+
+
+def clusters_path(dataset_id):
+    return os.path.join(ANALYSES_DIR, f"{dataset_id}_clusters.parquet")
+
+
+# ---------------- LOAD ----------------
 
 def load_registry():
     if not os.path.exists(dataset_registry_path()):
@@ -22,56 +36,16 @@ def load_registry():
         return json.load(f)
 
 
-def rfm_path(dataset_id: str) -> str:
-    return os.path.join(ANALYSES_DIR, f"{dataset_id}_rfm.parquet")
+def safe_read_parquet(path):
+    if os.path.exists(path):
+        try:
+            return pd.read_parquet(path)
+        except:
+            return None
+    return None
 
 
-def clusters_path(dataset_id: str) -> str:
-    return os.path.join(ANALYSES_DIR, f"{dataset_id}_clusters.parquet")
-
-
-def clusters_meta_path(dataset_id: str) -> str:
-    return os.path.join(ANALYSES_DIR, f"{dataset_id}_clusters_meta.json")
-
-
-def safe_read_parquet(path: str) -> pd.DataFrame | None:
-    if not os.path.exists(path):
-        return None
-    try:
-        return pd.read_parquet(path)
-    except Exception:
-        return None
-
-
-def build_summary(df_tx: pd.DataFrame, df_rfm: pd.DataFrame | None, df_clusters: pd.DataFrame | None) -> pd.DataFrame:
-    rows = len(df_tx)
-    customers = df_tx[STD_CUSTOMER].nunique()
-    min_date = df_tx[STD_DATE].min()
-    max_date = df_tx[STD_DATE].max()
-    revenue = df_tx[STD_AMOUNT].sum()
-    avg_order = df_tx[STD_AMOUNT].mean()
-
-    out = {
-        "rows": [rows],
-        "customers": [customers],
-        "date_min": [str(min_date)],
-        "date_max": [str(max_date)],
-        "total_revenue": [float(revenue)],
-        "avg_order_value": [float(avg_order)],
-        "has_rfm": [df_rfm is not None and not df_rfm.empty],
-        "has_clusters": [df_clusters is not None and not df_clusters.empty],
-    }
-
-    # If clustering exists, add number of segments
-    if df_clusters is not None and "cluster_label" in df_clusters.columns:
-        out["segments_count"] = [int(df_clusters["cluster_label"].nunique())]
-    elif df_clusters is not None and "cluster" in df_clusters.columns:
-        out["segments_count"] = [int(df_clusters["cluster"].nunique())]
-    else:
-        out["segments_count"] = [0]
-
-    return pd.DataFrame(out)
-
+# ---------------- UI ----------------
 
 st.title("📄 Report & Export")
 
@@ -79,107 +53,120 @@ dataset_id = st.session_state.get("active_dataset_id")
 df_tx = st.session_state.get("df_transactions")
 
 if not dataset_id or df_tx is None or df_tx.empty:
-    st.warning("Najprv načítaj dáta na stránke **Načítanie a overenie dát**.")
+    st.warning("Najprv načítaj dáta.")
     st.stop()
 
-# Ensure types
+# Clean
 df_tx = df_tx.copy()
 df_tx[STD_DATE] = pd.to_datetime(df_tx[STD_DATE], errors="coerce")
 df_tx[STD_AMOUNT] = pd.to_numeric(df_tx[STD_AMOUNT], errors="coerce")
 df_tx = df_tx.dropna(subset=[STD_DATE, STD_AMOUNT, STD_CUSTOMER])
 
-# Load analyses from disk if available
-df_rfm = safe_read_parquet(rfm_path(dataset_id))
-df_clusters = safe_read_parquet(clusters_path(dataset_id))
+# Load data (ВАЖНО: session + disk)
+df_rfm = st.session_state.get("df_rfm")
+if df_rfm is None:
+    df_rfm = safe_read_parquet(rfm_path(dataset_id))
+
+df_clusters = st.session_state.get("df_clusters")
+if df_clusters is None:
+    df_clusters = safe_read_parquet(clusters_path(dataset_id))
 
 registry = load_registry()
 
-st.markdown(
-    """
-Táto stránka umožňuje export výsledkov analýzy pre marketingové použitie.
-Môžeš stiahnuť:
-- transakčné dáta (štandardizované),
-- RFM tabuľku,
-- segmentáciu (klastre),
-- súhrnný report (summary).
-"""
-)
+# ---------------- KPI ----------------
 
-st.subheader("Aktívny dataset")
-st.code(f"dataset_id = {dataset_id}")
+st.subheader("📊 Overview")
 
-# Show registry info for this dataset if exists
-ds_meta = None
-for d in registry.get("datasets", []):
-    if d.get("id") == dataset_id:
-        ds_meta = d
-        break
+col1, col2, col3, col4 = st.columns(4)
 
-if ds_meta:
-    st.write("Original name:", ds_meta.get("original_name"))
-    st.write("Created at:", ds_meta.get("created_at"))
-    st.write("Rows:", ds_meta.get("rows"))
-    st.write("Customers:", ds_meta.get("customers"))
+col1.metric("Rows", f"{len(df_tx):,}")
+col2.metric("Customers", f"{df_tx[STD_CUSTOMER].nunique():,}")
+col3.metric("Revenue", f"{df_tx[STD_AMOUNT].sum():.2f}")
+col4.metric("Avg order", f"{df_tx[STD_AMOUNT].mean():.2f}")
 
-st.divider()
+# ---------------- STATUS ----------------
 
-st.subheader("Dostupné uložené analýzy (história)")
-files_info = [
-    ("RFM", rfm_path(dataset_id)),
-    ("Clusters", clusters_path(dataset_id)),
-    ("Clusters meta", clusters_meta_path(dataset_id)),
-]
-for label, path in files_info:
-    st.write(f"- {label}: {'✅' if os.path.exists(path) else '❌'}  ({path})")
+st.subheader("📁 Analysis status")
 
-st.divider()
+rfm_ok = df_rfm is not None and not df_rfm.empty
+clusters_ok = df_clusters is not None and not df_clusters.empty
 
-# Summary report
-st.subheader("Summary report")
-summary_df = build_summary(df_tx, df_rfm, df_clusters)
-st.dataframe(summary_df, use_container_width=True)
+st.write(f"RFM: {'✅' if rfm_ok else '❌'}")
+st.write(f"Segmentation: {'✅' if clusters_ok else '❌'}")
 
-summary_csv = summary_df.to_csv(index=False).encode("utf-8")
-st.download_button(
-    "⬇️ Download summary report (CSV)",
-    data=summary_csv,
-    file_name=f"{dataset_id}_summary.csv",
-    mime="text/csv"
-)
+if clusters_ok:
+    st.success("Segmentácia je dostupná")
+else:
+    st.warning("Segmentácia nie je dostupná")
 
-st.divider()
+# ---------------- SUMMARY ----------------
 
-# Exports
-st.subheader("Export súborov")
+st.subheader("Summary")
+
+summary = pd.DataFrame({
+    "rows": [len(df_tx)],
+    "customers": [df_tx[STD_CUSTOMER].nunique()],
+    "revenue": [df_tx[STD_AMOUNT].sum()],
+    "avg_order": [df_tx[STD_AMOUNT].mean()],
+    "has_rfm": [rfm_ok],
+    "has_clusters": [clusters_ok],
+})
+
+st.dataframe(summary)
+
+# ---------------- EXPORT ----------------
+
+st.subheader("📥 Export")
 
 tx_csv = df_tx.to_csv(index=False).encode("utf-8")
+
 st.download_button(
-    "⬇️ Download transactions (CSV)",
-    data=tx_csv,
-    file_name=f"{dataset_id}_transactions.csv",
-    mime="text/csv"
+    "Download transactions",
+    tx_csv,
+    f"{dataset_id}_transactions.csv"
 )
 
-if df_rfm is not None and not df_rfm.empty:
+if rfm_ok:
     rfm_csv = df_rfm.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "⬇️ Download RFM (CSV)",
-        data=rfm_csv,
-        file_name=f"{dataset_id}_rfm.csv",
-        mime="text/csv"
-    )
-else:
-    st.info("RFM zatiaľ nie je dostupné. Spusti RFM analýzu, aby sa dalo exportovať.")
 
-if df_clusters is not None and not df_clusters.empty:
+    st.download_button(
+        "Download RFM",
+        rfm_csv,
+        f"{dataset_id}_rfm.csv"
+    )
+
+if clusters_ok:
     clusters_csv = df_clusters.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "⬇️ Download clusters (CSV)",
-        data=clusters_csv,
-        file_name=f"{dataset_id}_clusters.csv",
-        mime="text/csv"
-    )
-else:
-    st.info("Segmentácia zatiaľ nie je dostupná. Spusti Segmentáciu, aby sa dala exportovať.")
 
-st.success("✅ Export pripravený. Posledná stránka: **Nastavenia segmentácie**.")
+    st.download_button(
+        "Download clusters",
+        clusters_csv,
+        f"{dataset_id}_clusters.csv"
+    )
+
+# ---------------- ZIP EXPORT ----------------
+
+st.subheader("📦 Export all (ZIP)")
+
+if st.button("Create ZIP export"):
+
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, "w") as z:
+
+        z.writestr("transactions.csv", tx_csv)
+
+        if rfm_ok:
+            z.writestr("rfm.csv", df_rfm.to_csv(index=False))
+
+        if clusters_ok:
+            z.writestr("clusters.csv", df_clusters.to_csv(index=False))
+
+    st.download_button(
+        "⬇️ Download ZIP",
+        zip_buffer.getvalue(),
+        f"{dataset_id}_export.zip",
+        mime="application/zip"
+    )
+
+st.success("✅ Report ready")
