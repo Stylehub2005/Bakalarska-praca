@@ -15,7 +15,7 @@ ANALYSES_DIR = os.path.join(DATA_DIR, "analyses")
 REGISTRY_PATH = os.path.join(DATA_DIR, "registry.json")
 
 
-# ---------- Storage ----------
+# ---------- STORAGE ----------
 def ensure_storage():
     os.makedirs(DATASETS_DIR, exist_ok=True)
     os.makedirs(ANALYSES_DIR, exist_ok=True)
@@ -31,191 +31,184 @@ def load_registry():
 
 def save_registry(registry):
     with open(REGISTRY_PATH, "w", encoding="utf-8") as f:
-        json.dump(registry, f, ensure_ascii=False, indent=2)
+        json.dump(registry, f, indent=2)
 
 
-def dataset_file_path(dataset_id):
+def dataset_path(dataset_id):
     return os.path.join(DATASETS_DIR, f"{dataset_id}.csv")
 
 
+def delete_dataset(dataset_id):
+    p = dataset_path(dataset_id)
+    if os.path.exists(p):
+        os.remove(p)
+
+
 # ---------- CSV ----------
-def load_csv_safely(uploaded_file):
+def load_csv_safely(file):
     for sep in [",", ";", "\t", "|"]:
         try:
-            uploaded_file.seek(0)
-            df = pd.read_csv(uploaded_file, sep=sep)
+            file.seek(0)
+            df = pd.read_csv(file, sep=sep)
             if df.shape[1] >= 2:
                 return df
         except:
             pass
-    uploaded_file.seek(0)
-    return pd.read_csv(uploaded_file, sep=None, engine="python")
+    file.seek(0)
+    return pd.read_csv(file, sep=None, engine="python")
 
 
 # ---------- CORE ----------
-def to_standard_schema(df, customer_col, date_col, amount_mode, amount_col=None, qty_col=None, price_col=None):
+def to_standard(df, c, d, mode, a=None, q=None, p=None):
     df = df.copy()
 
-    # rename safely
-    rename_map = {
-        customer_col: STD_CUSTOMER,
-        date_col: STD_DATE
-    }
+    df = df.rename(columns={c: STD_CUSTOMER, d: STD_DATE})
 
-    df = df.rename(columns=rename_map)
-
-    if amount_mode == "Dataset obsahuje amount":
-        if amount_col not in df.columns:
-            raise ValueError("Amount column not found")
-        df = df.rename(columns={amount_col: STD_AMOUNT})
-
+    if mode == "Amount":
+        df = df.rename(columns={a: STD_AMOUNT})
     else:
-        if qty_col not in df.columns or price_col not in df.columns:
-            raise ValueError("Quantity alebo Price stĺpec neexistuje")
+        df[STD_AMOUNT] = pd.to_numeric(df[q], errors="coerce") * pd.to_numeric(df[p], errors="coerce")
 
-        qty = pd.to_numeric(df[qty_col], errors="coerce")
-        price = pd.to_numeric(df[price_col], errors="coerce")
-
-        df[STD_AMOUNT] = qty * price
-
-    # FINAL CHECK
-    required = [STD_CUSTOMER, STD_DATE, STD_AMOUNT]
-
-    for col in required:
-        if col not in df.columns:
-            raise ValueError(f"Missing column: {col}")
-
-    return df[required]
+    return df[[STD_CUSTOMER, STD_DATE, STD_AMOUNT]]
 
 
-def basic_cleaning(df):
+def clean(df):
     df = df.copy()
-
-    df[STD_CUSTOMER] = df[STD_CUSTOMER].astype(str).str.strip()
     df[STD_DATE] = pd.to_datetime(df[STD_DATE], errors="coerce")
     df[STD_AMOUNT] = pd.to_numeric(df[STD_AMOUNT], errors="coerce")
-
     df = df.dropna()
     df = df[df[STD_AMOUNT] > 0]
-
     return df
-
-
-def dataset_stats(df):
-    return {
-        "rows": len(df),
-        "customers": df[STD_CUSTOMER].nunique(),
-        "revenue": df[STD_AMOUNT].sum()
-    }
 
 
 # ---------- UI ----------
 st.title("📂 Načítanie dát")
 
-st.info("Nahraj CSV súbor a nastav mapovanie stĺpcov.")
-
 registry = load_registry()
 
-uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+# ================= HISTORY =================
+st.subheader("🗃 História datasetov")
 
-if uploaded_file is None:
-    st.stop()
+datasets = registry["datasets"]
 
-df_raw = load_csv_safely(uploaded_file)
+if datasets:
 
-st.subheader("Preview")
-st.dataframe(df_raw.head())
+    labels = []
+    id_map = {}
 
-cols = list(df_raw.columns)
+    for d in datasets:
+        label = f"{d['created_at']} | rows={d['rows']} customers={d['customers']}"
+        labels.append(label)
+        id_map[label] = d["id"]
 
-# ---------- MAPPING ----------
-st.subheader("🧩 Mapovanie")
+    selected = st.selectbox("Vyber dataset", labels)
 
-st.warning("⚠️ Každý stĺpec musí byť unikátny")
+    col1, col2 = st.columns(2)
 
-customer_col = st.selectbox("Customer", cols)
-date_col = st.selectbox("Date", cols)
+    with col1:
+        if st.button("✅ Nastaviť ako aktívny"):
+            dataset_id = id_map[selected]
 
-amount_mode = st.radio(
-    "Zdroj hodnoty",
-    ["Dataset obsahuje amount", "Vypočítať Quantity × Price"]
-)
+            df = pd.read_csv(dataset_path(dataset_id))
+            df[STD_DATE] = pd.to_datetime(df[STD_DATE])
+            df[STD_AMOUNT] = pd.to_numeric(df[STD_AMOUNT])
 
-if amount_mode == "Dataset obsahuje amount":
-    amount_col = st.selectbox("Amount", cols)
-    qty_col = None
-    price_col = None
+            st.session_state["df_transactions"] = df
+            st.session_state["active_dataset_id"] = dataset_id
+
+            registry["active_dataset_id"] = dataset_id
+            save_registry(registry)
+
+            st.success("Dataset nastavený ako aktívny")
+            st.rerun()
+
+    with col2:
+        if st.button("🗑 Zmazať dataset"):
+            dataset_id = id_map[selected]
+
+            registry["datasets"] = [d for d in datasets if d["id"] != dataset_id]
+
+            delete_dataset(dataset_id)
+            save_registry(registry)
+
+            st.warning("Dataset zmazaný")
+            st.rerun()
+
 else:
-    qty_col = st.selectbox("Quantity", cols)
-    price_col = st.selectbox("Price", cols)
-    amount_col = None
+    st.info("Žiadne datasety")
 
 
-# ---------- VALIDATION ----------
-selected_cols = [customer_col, date_col]
+st.divider()
 
-if amount_mode == "Dataset obsahuje amount":
-    selected_cols.append(amount_col)
-else:
-    selected_cols.extend([qty_col, price_col])
+# ================= UPLOAD =================
+st.subheader("⬆️ Nahrať CSV")
 
-if len(set(selected_cols)) != len(selected_cols):
-    st.error("❌ Vybral si rovnaký stĺpec viackrát!")
-    st.stop()
+file = st.file_uploader("Upload CSV")
 
+if file:
 
-# ---------- SAVE ----------
-if st.button("💾 Uložiť dataset"):
+    df_raw = load_csv_safely(file)
 
-    try:
-        df_std = to_standard_schema(
-            df_raw,
-            customer_col,
-            date_col,
-            amount_mode,
-            amount_col,
-            qty_col,
-            price_col
-        )
+    st.dataframe(df_raw.head())
 
-        df_clean = basic_cleaning(df_std)
+    cols = list(df_raw.columns)
 
-        if df_clean.empty:
-            st.error("❌ Dataset je prázdny po čistení")
-            st.stop()
+    st.subheader("🧩 Mapovanie")
 
-        # save
-        ensure_storage()
-        csv_bytes = df_clean.to_csv(index=False).encode("utf-8")
-        dataset_id = hashlib.sha256(csv_bytes).hexdigest()[:16]
+    customer = st.selectbox("Customer", cols)
+    date = st.selectbox("Date", cols)
 
-        with open(dataset_file_path(dataset_id), "wb") as f:
-            f.write(csv_bytes)
+    mode = st.radio("Mode", ["Amount", "Quantity×Price"])
 
-        registry = load_registry()
+    if mode == "Amount":
+        amount = st.selectbox("Amount", cols)
+        qty = price = None
+    else:
+        qty = st.selectbox("Quantity", cols)
+        price = st.selectbox("Price", cols)
+        amount = None
 
-        registry["datasets"].insert(0, {
-            "id": dataset_id,
-            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "rows": len(df_clean),
-            "customers": df_clean[STD_CUSTOMER].nunique()
-        })
+    # VALIDATION
+    selected_cols = [customer, date]
 
-        registry["active_dataset_id"] = dataset_id
-        save_registry(registry)
+    if mode == "Amount":
+        selected_cols.append(amount)
+    else:
+        selected_cols.extend([qty, price])
 
-        st.session_state["df_transactions"] = df_clean
-        st.session_state["active_dataset_id"] = dataset_id
+    if len(set(selected_cols)) != len(selected_cols):
+        st.error("❌ Duplicitné stĺpce!")
+        st.stop()
 
-        stats = dataset_stats(df_clean)
+    if st.button("💾 Uložiť dataset"):
 
-        st.success("✅ Dataset uložený")
+        try:
+            df = to_standard(df_raw, customer, date, mode, amount, qty, price)
+            df = clean(df)
 
-        c1, c2, c3 = st.columns(3)
-        c1.metric("Rows", stats["rows"])
-        c2.metric("Customers", stats["customers"])
-        c3.metric("Revenue", f"{stats['revenue']:.2f}")
+            csv = df.to_csv(index=False).encode()
+            dataset_id = hashlib.sha256(csv).hexdigest()[:16]
 
-    except Exception as e:
-        st.error("❌ Chyba pri spracovaní datasetu")
-        st.exception(e)
+            with open(dataset_path(dataset_id), "wb") as f:
+                f.write(csv)
+
+            registry = load_registry()
+
+            registry["datasets"].insert(0, {
+                "id": dataset_id,
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "rows": len(df),
+                "customers": df[STD_CUSTOMER].nunique()
+            })
+
+            registry["active_dataset_id"] = dataset_id
+            save_registry(registry)
+
+            st.session_state["df_transactions"] = df
+            st.session_state["active_dataset_id"] = dataset_id
+
+            st.success("✅ Dataset uložený")
+
+        except Exception as e:
+            st.error("Chyba")
+            st.exception(e)
