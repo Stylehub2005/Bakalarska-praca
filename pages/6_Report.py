@@ -45,7 +45,7 @@ def safe_read_parquet(path):
 
 st.title("📄 Report & Export")
 
-# 🔥 NEW: PURPOSE
+
 st.markdown("""
 ## 🎯 Účel stránky
 
@@ -101,7 +101,7 @@ col2.metric("Customers", f"{customers:,}")
 col3.metric("Revenue", f"{revenue:.2f}")
 col4.metric("Avg order", f"{avg_order:.2f}")
 
-# 🔥 NEW: INTERPRETATION
+
 st.markdown("### 📈 Interpretácia")
 
 if customers > 0:
