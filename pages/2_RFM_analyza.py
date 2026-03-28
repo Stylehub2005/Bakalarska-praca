@@ -233,7 +233,6 @@ st.subheader("Distributions")
 st.plotly_chart(px.histogram(df_rfm, x="recency"))
 st.plotly_chart(px.histogram(df_rfm, x="frequency"))
 
-# ✅ ИНТЕРПРЕТАЦИЯ
 st.markdown("### 📈 Interpretácia dát")
 
 if df_rfm["frequency"].skew() > 1:
@@ -248,9 +247,23 @@ labels = ["1","2","3","4-5","6-10","10+"]
 
 df_rfm["frequency_group"] = pd.cut(df_rfm["frequency"], bins=bins, labels=labels)
 
+freq_counts = (
+    df_rfm["frequency_group"]
+    .value_counts()
+    .sort_index()
+    .reset_index()
+)
+
+freq_counts.columns = ["Frequency group", "Customers"]
+
 st.plotly_chart(
-    px.bar(df_rfm["frequency_group"].value_counts().reset_index(),
-           x="index", y="frequency_group")
+    px.bar(
+        freq_counts,
+        x="Frequency group",
+        y="Customers",
+        title="Customer distribution by purchase frequency"
+    ),
+    use_container_width=True
 )
 
 # ================= OUTLIERS =================
@@ -269,7 +282,19 @@ st.plotly_chart(px.box(df_rfm, y="monetary"))
 
 st.subheader("Segment overview")
 
+seg_counts = (
+    df_rfm["Segment_label"]
+    .value_counts()
+    .reset_index()
+)
+
+seg_counts.columns = ["Segment", "Customers"]
+
 st.plotly_chart(
-    px.bar(df_rfm["Segment_label"].value_counts().reset_index(),
-           x="index", y="Segment_label")
+    px.bar(
+        seg_counts,
+        x="Segment",
+        y="Customers"
+    ),
+    use_container_width=True
 )
