@@ -113,3 +113,4 @@ st.markdown("""
 
 👨‍🎓 Bachelor thesis project – Customer Segmentation System
 """)
+#https://bakalarska-praca-k6jwcdmpgsjuck4qyftlee.streamlit.app/

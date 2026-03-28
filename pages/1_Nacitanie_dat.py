@@ -46,7 +46,6 @@ def dataset_file_path(dataset_id: str) -> str:
 
 
 def analysis_file_path(dataset_id: str, kind: str) -> str:
-    # kind example: "rfm"
     return os.path.join(ANALYSES_DIR, f"{dataset_id}_{kind}.parquet")
 
 
@@ -55,7 +54,6 @@ def delete_dataset_files(dataset_id: str) -> None:
     if os.path.exists(p):
         os.remove(p)
 
-    # delete analyses linked to dataset_id
     for fname in os.listdir(ANALYSES_DIR):
         if fname.startswith(f"{dataset_id}_"):
             try:
@@ -99,7 +97,7 @@ def to_standard_schema(
 
     df = df.rename(columns={customer_col: STD_CUSTOMER, date_col: STD_DATE})
 
-    if amount_mode == "Amount column exists":
+    if amount_mode == "Dataset obsahuje amount":
         if not amount_col:
             raise ValueError("Amount column is not selected.")
         df = df.rename(columns={amount_col: STD_AMOUNT})
@@ -140,224 +138,131 @@ def dataset_stats(df: pd.DataFrame) -> dict:
 # ---------- UI ----------
 st.title("📂 Načítanie a overenie dát")
 
-st.markdown(
-    """
-Táto stránka umožňuje:
-- nahrať nový dataset (CSV) a uložiť ho do histórie,
-- vybrať aktívny dataset z histórie,
-- nastaviť mapovanie stĺpcov (customer/date/amount),
-- vyčistiť dáta a uložiť ich do session pre ďalšie kroky.
-"""
+# ---------- NEW UX BLOCK ----------
+st.info("""
+📌 **Aký dataset nahrať?**
+
+Aplikácia pracuje s transakčnými dátami zákazníkov.
+
+**Minimálne požiadavky:**
+• customer_id → identifikátor zákazníka  
+• transaction_date → dátum nákupu  
+• amount → hodnota nákupu  
+
+---
+
+📊 Alternatíva:
+• Quantity + Price → automatický výpočet amount
+
+---
+
+⚠️ Každý riadok = jedna transakcia
+""")
+
+example_df = pd.DataFrame({
+    "customer_id": ["C001", "C001", "C002"],
+    "transaction_date": ["2023-01-01", "2023-01-10", "2023-01-05"],
+    "amount": [100, 50, 200]
+})
+
+st.download_button(
+    "⬇️ Stiahnuť ukážkový dataset",
+    data=example_df.to_csv(index=False).encode("utf-8"),
+    file_name="example_dataset.csv",
+    mime="text/csv"
 )
+
+st.markdown("""
+Táto stránka umožňuje:
+- nahrať dataset,
+- vybrať aktívny dataset,
+- nastaviť mapovanie,
+- pripraviť dáta pre analýzu.
+""")
 
 registry = load_registry()
 
-# --- History / Active dataset selector
 st.subheader("🗃 História datasetov")
 
 datasets = registry.get("datasets", [])
 active_id = registry.get("active_dataset_id")
 
 if datasets:
-    # show list with a friendly label
     options = []
     id_by_label = {}
     for d in datasets:
-        label = f"{d['created_at']} | {d.get('original_name','dataset')} | rows={d.get('rows','?')} customers={d.get('customers','?')}"
+        label = f"{d['created_at']} | {d.get('original_name','dataset')}"
         options.append(label)
         id_by_label[label] = d["id"]
 
-    default_label = None
-    if active_id:
-        for d in datasets:
-            if d["id"] == active_id:
-                default_label = f"{d['created_at']} | {d.get('original_name','dataset')} | rows={d.get('rows','?')} customers={d.get('customers','?')}"
-                break
+    selected_label = st.selectbox("Vyber dataset", options)
 
-    selected_label = st.selectbox(
-        "Vyber aktívny dataset",
-        options,
-        index=options.index(default_label) if default_label in options else 0
-    )
-
-    colA, colB, colC = st.columns([1, 1, 2])
-
-    with colA:
-        if st.button("✅ Nastaviť ako aktívny"):
-            registry["active_dataset_id"] = id_by_label[selected_label]
-            save_registry(registry)
-            st.success("Aktívny dataset bol nastavený.")
-            st.rerun()
-
-    with colB:
-        if st.button("🗑 Zmazať vybraný dataset"):
-            ds_id = id_by_label[selected_label]
-            # remove from registry
-            registry["datasets"] = [d for d in registry["datasets"] if d["id"] != ds_id]
-            if registry.get("active_dataset_id") == ds_id:
-                registry["active_dataset_id"] = registry["datasets"][0]["id"] if registry["datasets"] else None
-            save_registry(registry)
-            # remove files
-            delete_dataset_files(ds_id)
-            # clear session if it referenced it
-            if st.session_state.get("active_dataset_id") == ds_id:
-                st.session_state.pop("df_transactions", None)
-                st.session_state.pop("df_rfm", None)
-                st.session_state.pop("active_dataset_id", None)
-            st.warning("Dataset bol odstránený (aj uložené analýzy).")
-            st.rerun()
+    if st.button("✅ Nastaviť ako aktívny"):
+        registry["active_dataset_id"] = id_by_label[selected_label]
+        save_registry(registry)
+        st.rerun()
 
 else:
-    st.info("Zatiaľ nie sú uložené žiadne datasety. Nahraj prvý CSV nižšie.")
+    st.info("Zatiaľ nemáš žiadne datasety.")
 
 st.divider()
 
-# --- Upload new dataset
-st.subheader("⬆️ Nahrať nový dataset (CSV)")
+st.subheader("⬆️ Nahrať dataset (CSV)")
 
-uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
+uploaded_file = st.file_uploader("Vyber CSV súbor", type=["csv"])
 
 if uploaded_file is None:
-    # If we have an active dataset, load it to session so other pages work
-    if registry.get("active_dataset_id"):
-        ds_id = registry["active_dataset_id"]
-        csv_path = dataset_file_path(ds_id)
-        if os.path.exists(csv_path):
-            # load active dataset into session on-demand
-            df_raw = pd.read_csv(csv_path)
-            # it is already standardized (customer_id/transaction_date/amount) because we store cleaned version
-            df_raw[STD_DATE] = pd.to_datetime(df_raw[STD_DATE], errors="coerce")
-            df_raw[STD_AMOUNT] = pd.to_numeric(df_raw[STD_AMOUNT], errors="coerce")
-            df_raw = df_raw.dropna(subset=[STD_CUSTOMER, STD_DATE, STD_AMOUNT])
-            st.session_state["df_transactions"] = df_raw
-            st.session_state["active_dataset_id"] = ds_id
-            st.success("Aktívny dataset je načítaný zo histórie a pripravený na analýzu.")
     st.stop()
 
-# read raw file
-try:
-    df_raw = load_csv_safely(uploaded_file)
-except Exception as e:
-    st.error("Nepodarilo sa načítať CSV. Skontroluj formát súboru.")
-    st.exception(e)
-    st.stop()
+df_raw = load_csv_safely(uploaded_file)
 
-st.subheader("Preview (raw)")
-st.dataframe(df_raw.head(15), use_container_width=True)
+st.dataframe(df_raw.head(10))
 
 cols = list(df_raw.columns)
-if not cols:
-    st.error("Dataset neobsahuje žiadne stĺpce.")
-    st.stop()
 
-# mapping UI
-st.subheader("🧩 Mapovanie stĺpcov (nastavenie povinných polí)")
+st.subheader("🧩 Mapovanie stĺpcov")
 
-customer_default = guess_index(cols, ["customer_id", "CustomerID", "Customer ID", "Customer"])
-date_default = guess_index(cols, ["transaction_date", "InvoiceDate", "date", "Date", "Invoice Date"])
-
-customer_col = st.selectbox("Customer ID column", cols, index=customer_default)
-date_col = st.selectbox("Transaction date column", cols, index=date_default)
+customer_col = st.selectbox("Zákazník (customer_id)", cols)
+date_col = st.selectbox("Dátum (transaction_date)", cols)
 
 amount_mode = st.radio(
-    "Amount source",
-    ["Amount column exists", "Compute as Quantity × Price"],
-    horizontal=True
+    "Zdroj hodnoty",
+    ["Dataset obsahuje amount", "Vypočítať Quantity × Price"]
 )
 
-amount_col = None
-qty_col = None
-price_col = None
-
-if amount_mode == "Amount column exists":
-    amount_default = guess_index(cols, ["amount", "Total", "Revenue", "TotalPrice", "Price"])
-    amount_col = st.selectbox("Amount column", cols, index=amount_default)
+if amount_mode == "Dataset obsahuje amount":
+    amount_col = st.selectbox("Amount", cols)
+    qty_col = price_col = None
 else:
-    qty_default = guess_index(cols, ["Quantity", "qty", "count", "Count"])
-    price_default = guess_index(cols, ["Price", "UnitPrice", "Unit Price"])
-    qty_col = st.selectbox("Quantity column", cols, index=qty_default)
-    price_col = st.selectbox("Price column", cols, index=price_default)
+    qty_col = st.selectbox("Quantity", cols)
+    price_col = st.selectbox("Price", cols)
+    amount_col = None
 
-apply = st.button("✅ Uložiť do histórie a nastaviť ako aktívny", type="primary")
+if st.button("💾 Uložiť dataset", type="primary"):
 
-if not apply:
-    st.info("Nastav mapovanie stĺpcov a klikni na tlačidlo vyššie.")
-    st.stop()
-
-# standardize + clean
-try:
     df_std = to_standard_schema(
-        df_raw=df_raw,
-        customer_col=customer_col,
-        date_col=date_col,
-        amount_mode=amount_mode,
-        amount_col=amount_col,
-        qty_col=qty_col,
-        price_col=price_col,
-    )
-except Exception as e:
-    st.error("Chyba pri mapovaní stĺpcov. Skontroluj výber.")
-    st.exception(e)
-    st.stop()
-
-df_clean = basic_cleaning(df_std)
-if df_clean.empty:
-    st.warning("Po čistení nezostali žiadne platné záznamy.")
-    st.stop()
-
-stats = dataset_stats(df_clean)
-
-# save dataset file (standardized cleaned CSV)
-ensure_storage()
-csv_bytes = df_clean.to_csv(index=False).encode("utf-8")
-dataset_id = bytes_sha256(csv_bytes)[:16]  # short stable id
-
-path = dataset_file_path(dataset_id)
-with open(path, "wb") as f:
-    f.write(csv_bytes)
-
-# update registry (avoid duplicates)
-created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-original_name = getattr(uploaded_file, "name", "uploaded.csv")
-
-registry = load_registry()
-if not any(d["id"] == dataset_id for d in registry["datasets"]):
-    registry["datasets"].insert(
-        0,
-        {
-            "id": dataset_id,
-            "created_at": created_at,
-            "original_name": original_name,
-            "rows": stats["rows"],
-            "customers": stats["customers"],
-            "min_date": str(stats["min_date"]),
-            "max_date": str(stats["max_date"]),
-            "mapping": {
-                "customer_col": customer_col,
-                "date_col": date_col,
-                "amount_mode": amount_mode,
-                "amount_col": amount_col,
-                "qty_col": qty_col,
-                "price_col": price_col,
-            },
-        },
+        df_raw, customer_col, date_col,
+        amount_mode, amount_col, qty_col, price_col
     )
 
-registry["active_dataset_id"] = dataset_id
-save_registry(registry)
+    df_clean = basic_cleaning(df_std)
 
-# put into session for next pages
-st.session_state["df_transactions"] = df_clean
-st.session_state["active_dataset_id"] = dataset_id
-st.session_state["mapping_info"] = registry["datasets"][0]["mapping"]
+    csv_bytes = df_clean.to_csv(index=False).encode("utf-8")
+    dataset_id = bytes_sha256(csv_bytes)[:16]
 
-st.success("✅ Dataset uložený do histórie a nastavený ako aktívny.")
-st.write("Aktívny dataset ID:", dataset_id)
+    path = dataset_file_path(dataset_id)
+    with open(path, "wb") as f:
+        f.write(csv_bytes)
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Rows", f"{stats['rows']:,}")
-c2.metric("Unique customers", f"{stats['customers']:,}")
-c3.metric("Total revenue", f"{stats['total_revenue']:.2f}")
-c4.metric("Avg. check", f"{stats['avg_check']:.2f}")
+    registry["datasets"].append({
+        "id": dataset_id,
+        "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "original_name": uploaded_file.name
+    })
 
-st.write("Date range:", stats["min_date"], "→", stats["max_date"])
+    registry["active_dataset_id"] = dataset_id
+    save_registry(registry)
+
+    st.session_state["df_transactions"] = df_clean
+
+    st.success("✅ Dataset uložený")
