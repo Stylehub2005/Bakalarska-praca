@@ -84,6 +84,38 @@ def clean(df):
 # ---------- UI ----------
 st.title("📂 Načítanie dát")
 
+# 🔥 ДОБАВЛЕНО — ИНСТРУКЦИЯ
+st.markdown("""
+### 📌 Ako pripraviť dataset
+
+Dataset musí obsahovať:
+
+- 🧑 **Customer ID** – identifikátor zákazníka  
+- 📅 **Dátum transakcie**  
+- 💰 **Hodnota transakcie**:
+  - buď ako **amount**
+  - alebo ako **Quantity × Price**
+
+---
+
+### ✅ Príklad:
+
+Customer | Date | Amount  
+123 | 2024-01-01 | 100  
+
+alebo:
+
+Customer | Date | Quantity | Price  
+123 | 2024-01-01 | 2 | 50  
+
+---
+
+### ⚠️ Dôležité:
+- každý stĺpec môže byť použitý iba raz  
+- dátum musí byť validný  
+- amount musí byť číslo > 0  
+""")
+
 registry = load_registry()
 
 # ================= HISTORY =================
@@ -155,18 +187,29 @@ if file:
 
     st.subheader("🧩 Mapovanie")
 
+    # 🔥 подсказки
+    st.caption("Vyber stĺpec identifikujúci zákazníka")
     customer = st.selectbox("Customer", cols)
+
+    st.caption("Vyber dátum transakcie")
     date = st.selectbox("Date", cols)
 
     mode = st.radio("Mode", ["Amount", "Quantity×Price"])
 
     if mode == "Amount":
+        st.caption("Vyber celkovú hodnotu objednávky")
         amount = st.selectbox("Amount", cols)
         qty = price = None
     else:
+        st.caption("Vyber množstvo produktov")
         qty = st.selectbox("Quantity", cols)
+
+        st.caption("Vyber cenu za jednotku")
         price = st.selectbox("Price", cols)
         amount = None
+
+    # 🔥 предупреждение
+    st.warning("⚠️ Každý stĺpec musí byť unikátny")
 
     # VALIDATION
     selected_cols = [customer, date]
