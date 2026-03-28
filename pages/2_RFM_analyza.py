@@ -161,7 +161,22 @@ def delete_rfm_from_disk(dataset_id: str) -> None:
         os.remove(path)
 
 
+# ================= UI =================
+
 st.title("📊 RFM analýza")
+
+
+st.markdown("""
+## 📊 Čo je RFM analýza?
+
+RFM = **Recency, Frequency, Monetary**
+
+- **Recency (R)** – koľko dní od posledného nákupu  
+- **Frequency (F)** – počet nákupov  
+- **Monetary (M)** – celková hodnota nákupov  
+
+👉 Používa sa na segmentáciu zákazníkov podľa ich hodnoty.
+""")
 
 settings = load_settings()
 weights = settings.get("rfm_weights", {"R": 1.0, "F": 1.0, "M": 1.0})
@@ -170,163 +185,91 @@ df = st.session_state.get("df_transactions")
 dataset_id = st.session_state.get("active_dataset_id")
 
 if df is None or df.empty:
-    st.warning("Najprv načítaj dáta na stránke **Načítanie a overenie dát**.")
+    st.warning("Najprv načítaj dáta.")
     st.stop()
 
 if not dataset_id:
-    st.warning("Nie je nastavený aktívny dataset.")
+    st.warning("Nie je aktívny dataset.")
     st.stop()
 
 min_date = df[STD_DATE].min()
 max_date = df[STD_DATE].max()
 
-default_snapshot = (max_date + pd.Timedelta(days=1)).date()
-
-snapshot_date_ui = st.date_input(
-    "Snapshot date",
-    value=default_snapshot,
-    min_value=min_date.date(),
-    max_value=(max_date + pd.Timedelta(days=365)).date(),
+snapshot_date = pd.to_datetime(
+    st.date_input("Snapshot date", value=(max_date + pd.Timedelta(days=1)).date())
 )
 
-snapshot_date = pd.to_datetime(snapshot_date_ui)
-
-saved_exists = os.path.exists(rfm_path(dataset_id))
-
-col1, col2, col3 = st.columns(3)
-
-with col1:
-    run_calc = st.button("▶️ Spustiť výpočet RFM", type="primary")
-
-with col2:
-    load_saved = st.button("♻️ Načítať uložený RFM", disabled=not saved_exists)
-
-with col3:
-    delete_saved = st.button("🗑 Zmazať uložený RFM", disabled=not saved_exists)
-
-if delete_saved:
-    delete_rfm_from_disk(dataset_id)
-    st.session_state.pop("df_rfm", None)
-    st.success("RFM deleted.")
-    st.rerun()
-
-if load_saved:
-    loaded = load_rfm_from_disk(dataset_id)
-    if loaded is not None:
-        st.session_state["df_rfm"] = loaded
-
-if run_calc:
+if st.button("▶️ Spustiť výpočet RFM"):
 
     rfm = compute_rfm(df, snapshot_date)
-
     rfm_scored = rfm_scoring_quintiles(rfm)
-
     rfm_scored = add_weighted_scores(rfm_scored, weights)
-
     rfm_scored = describe_segments_weighted(rfm_scored, weights)
 
     st.session_state["df_rfm"] = rfm_scored
-
     save_rfm_to_disk(rfm_scored, dataset_id)
-
-    st.success("RFM calculated and saved.")
 
 df_rfm = st.session_state.get("df_rfm")
 
 if df_rfm is None:
-    st.warning("Run RFM calculation first.")
     st.stop()
 
-st.subheader("RFM table")
 
-st.dataframe(
-    df_rfm.sort_values("RFM_weighted_sum", ascending=False).head(50),
-    use_container_width=True,
-)
+st.markdown("""
+### 🧾 Vysvetlenie stĺpcov
 
-st.subheader("Summary")
+- recency → nižšie = lepšie  
+- frequency → vyššie = lepšie  
+- monetary → vyššie = lepšie  
+- Segment_label → typ zákazníka
+""")
 
-c1, c2, c3, c4 = st.columns(4)
+st.dataframe(df_rfm.head(50))
 
-c1.metric("Customers", df_rfm[STD_CUSTOMER].nunique())
-c2.metric("Avg Recency", round(df_rfm["recency"].mean(), 1))
-c3.metric("Avg Frequency", round(df_rfm["frequency"].mean(), 2))
-c4.metric("Avg Monetary", round(df_rfm["monetary"].mean(), 2))
+# ================= DISTRIBUTIONS =================
 
 st.subheader("Distributions")
 
-colA, colB = st.columns(2)
+st.plotly_chart(px.histogram(df_rfm, x="recency"))
+st.plotly_chart(px.histogram(df_rfm, x="frequency"))
 
-with colA:
-    st.plotly_chart(px.histogram(df_rfm, x="recency", nbins=40))
+# ✅ ИНТЕРПРЕТАЦИЯ
+st.markdown("### 📈 Interpretácia dát")
 
-with colB:
-    st.plotly_chart(px.histogram(df_rfm, x="frequency", nbins=40))
+if df_rfm["frequency"].skew() > 1:
+    st.warning("Väčšina zákazníkov nakupuje málo → typické pre e-commerce")
 
-st.plotly_chart(px.histogram(df_rfm, x="monetary", nbins=40))
-
-# -------- Frequency category bar chart --------
+# ================= FIXED FREQUENCY =================
 
 st.subheader("Frequency categories")
 
-bins = [0, 1, 2, 5, 10, 20, df_rfm["frequency"].max() + 1]
+bins = [0,1,2,3,5,10,50]
+labels = ["1","2","3","4-5","6-10","10+"]
 
-labels = [
-    "1 purchase",
-    "2 purchases",
-    "3–5 purchases",
-    "6–10 purchases",
-    "11–20 purchases",
-    "20+ purchases",
-]
-
-df_rfm["frequency_group"] = pd.cut(
-    df_rfm["frequency"],
-    bins=bins,
-    labels=labels,
-    include_lowest=True,
-)
-
-freq_counts = (
-    df_rfm["frequency_group"]
-    .value_counts()
-    .sort_index()
-    .reset_index()
-)
-
-freq_counts.columns = ["Frequency group", "Customers"]
+df_rfm["frequency_group"] = pd.cut(df_rfm["frequency"], bins=bins, labels=labels)
 
 st.plotly_chart(
-    px.bar(freq_counts, x="Frequency group", y="Customers")
+    px.bar(df_rfm["frequency_group"].value_counts().reset_index(),
+           x="index", y="frequency_group")
 )
 
-# -------- Monetary boxplot --------
+# ================= OUTLIERS =================
 
 st.subheader("Monetary outliers")
 
-st.plotly_chart(
-    px.box(
-        df_rfm,
-        y="monetary",
-        points="outliers",
-        title="Monetary distribution with outliers",
-    )
-)
+q99 = df_rfm["monetary"].quantile(0.99)
 
-# -------- Segment overview --------
+st.markdown(f"""
+Top 1% zákazníkov generuje extrémny revenue.
+""")
+
+st.plotly_chart(px.box(df_rfm, y="monetary"))
+
+# ================= SEGMENTS =================
 
 st.subheader("Segment overview")
 
-seg_counts = (
-    df_rfm["Segment_label"]
-    .value_counts()
-    .reset_index()
-)
-
-seg_counts.columns = ["Segment", "Customers"]
-
 st.plotly_chart(
-    px.bar(seg_counts, x="Segment", y="Customers")
+    px.bar(df_rfm["Segment_label"].value_counts().reset_index(),
+           x="index", y="Segment_label")
 )
-
-st.info("✅ RFM ready. Continue to customer segmentation.")
