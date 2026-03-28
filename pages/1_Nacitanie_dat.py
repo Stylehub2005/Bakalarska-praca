@@ -82,14 +82,23 @@ def to_standard_schema(df_raw, customer_col, date_col, amount_mode, amount_col=N
 
     if amount_mode == "Dataset obsahuje amount":
         if amount_col not in df.columns:
-            raise ValueError("Stĺpec amount neexistuje.")
+            raise ValueError("❌ Stĺpec amount neexistuje.")
         df = df.rename(columns={amount_col: STD_AMOUNT})
+
     else:
         if qty_col not in df.columns or price_col not in df.columns:
-            raise ValueError("Stĺpce Quantity alebo Price neexistujú.")
+            raise ValueError("❌ Stĺpce Quantity alebo Price neexistujú.")
+
+        # 🔥 VALIDÁCIA
+        if not pd.api.types.is_numeric_dtype(df[qty_col]):
+            raise ValueError("❌ Quantity musí byť číselný stĺpec.")
+
+        if not pd.api.types.is_numeric_dtype(df[price_col]):
+            raise ValueError("❌ Price musí byť číselný stĺpec.")
 
         qty = pd.to_numeric(df[qty_col], errors="coerce")
         price = pd.to_numeric(df[price_col], errors="coerce")
+
         df[STD_AMOUNT] = qty * price
 
     return df[[STD_CUSTOMER, STD_DATE, STD_AMOUNT]].copy()
@@ -107,17 +116,10 @@ def basic_cleaning(df):
     return df
 
 
-def dataset_stats(df):
-    return {
-        "rows": len(df),
-        "customers": df[STD_CUSTOMER].nunique(),
-        "total": df[STD_AMOUNT].sum()
-    }
-
-
 # ---------- UI ----------
 st.title("📂 Načítanie a overenie dát")
 
+# ---------- INFO ----------
 st.info("""
 📌 **Aký dataset nahrať?**
 
@@ -151,7 +153,6 @@ registry = load_registry()
 st.subheader("🗃 História datasetov")
 
 datasets = registry.get("datasets", [])
-active_id = registry.get("active_dataset_id")
 
 if datasets:
     options = []
@@ -172,7 +173,6 @@ if datasets:
             registry["active_dataset_id"] = ds_id
             save_registry(registry)
 
-            # 🔥 load dataset to session
             path = dataset_file_path(ds_id)
             if os.path.exists(path):
                 df = pd.read_csv(path)
@@ -219,27 +219,25 @@ st.subheader("🧩 Mapovanie stĺpcov")
 customer_col = st.selectbox("Zákazník", cols)
 date_col = st.selectbox("Dátum", cols)
 
-mode = st.radio(
+amount_mode = st.radio(
     "Zdroj hodnoty",
     ["Dataset obsahuje amount", "Vypočítať Quantity × Price"]
 )
 
-if mode == "Dataset obsahuje amount":
+if amount_mode == "Dataset obsahuje amount":
     amount_col = st.selectbox("Amount", cols)
     qty_col = price_col = None
 else:
+    st.warning("⚠️ Vyber číselné stĺpce pre Quantity a Price")
     qty_col = st.selectbox("Quantity", cols)
     price_col = st.selectbox("Price", cols)
     amount_col = None
-
-# debug
-st.write("Vybrané:", customer_col, date_col, amount_col, qty_col, price_col)
 
 # ---------- SAVE ----------
 if st.button("💾 Uložiť dataset", type="primary"):
 
     try:
-        df = to_standard_schema(df_raw, customer_col, date_col, mode, amount_col, qty_col, price_col)
+        df = to_standard_schema(df_raw, customer_col, date_col, amount_mode, amount_col, qty_col, price_col)
     except Exception as e:
         st.error(str(e))
         st.stop()
@@ -269,11 +267,4 @@ if st.button("💾 Uložiť dataset", type="primary"):
     st.session_state["df_transactions"] = df
     st.session_state["active_dataset_id"] = dataset_id
 
-    stats = dataset_stats(df)
-
     st.success("✅ Dataset uložený")
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Rows", stats["rows"])
-    c2.metric("Customers", stats["customers"])
-    c3.metric("Revenue", f"{stats['total']:.2f}")
