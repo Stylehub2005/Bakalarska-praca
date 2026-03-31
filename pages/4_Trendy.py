@@ -50,7 +50,22 @@ def resample_freq(df, rule):
     return out.reset_index()
 
 
+# ================= UI =================
+
 st.title("📈 Trendy a monitoring")
+
+st.markdown("""
+## 🎯 Na čo slúži táto stránka?
+
+Táto stránka slúži na sledovanie vývoja biznisu v čase:
+
+- 📈 ako sa mení revenue  
+- 👥 ako rastie počet zákazníkov  
+- 💰 ako sa správa hodnota objednávok  
+- 🧩 ako sa správajú jednotlivé segmenty  
+
+👉 Cieľ: odhaliť trendy, problémy a príležitosti.
+""")
 
 df_tx = get_transactions()
 if df_tx is None:
@@ -87,6 +102,15 @@ trend = resample_freq(df_f, rule)
 
 # -------- KPI --------
 st.subheader("KPI")
+
+st.markdown("""
+💡 Rýchly prehľad aktuálneho výkonu:
+- revenue → celkový obrat  
+- transactions → počet nákupov  
+- customers → počet zákazníkov  
+- avg order → priemerná hodnota objednávky  
+""")
+
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Revenue", f"{df_f[STD_AMOUNT].sum():.2f}")
 c2.metric("Transactions", len(df_f))
@@ -94,14 +118,42 @@ c3.metric("Customers", df_f[STD_CUSTOMER].nunique())
 c4.metric("Avg order", f"{df_f[STD_AMOUNT].mean():.2f}")
 
 # -------- TRENDS --------
-st.subheader("Trendy")
+st.subheader("📈 Hlavné trendy")
 
-st.plotly_chart(px.line(trend, x=STD_DATE, y="revenue"))
-st.plotly_chart(px.line(trend, x=STD_DATE, y="active_customers"))
-st.plotly_chart(px.line(trend, x=STD_DATE, y="avg_order_value"))
+st.markdown("""
+Tieto grafy ukazujú vývoj v čase:
+
+- Revenue → rast / pokles biznisu  
+- Customers → akvizícia zákazníkov  
+- Avg order → kvalita nákupov  
+
+👉 Sleduj:
+- rast → pozitívny trend  
+- pokles → problém  
+""")
+
+fig1 = px.line(trend, x=STD_DATE, y="revenue", title="Revenue trend")
+fig1.update_layout(height=300)
+st.plotly_chart(fig1, use_container_width=True)
+
+fig2 = px.line(trend, x=STD_DATE, y="active_customers", title="Customers trend")
+fig2.update_layout(height=300)
+st.plotly_chart(fig2, use_container_width=True)
+
+fig3 = px.line(trend, x=STD_DATE, y="avg_order_value", title="Avg order value")
+fig3.update_layout(height=300)
+st.plotly_chart(fig3, use_container_width=True)
 
 # -------- SEGMENT TRENDS --------
-st.subheader("Segment trends")
+st.subheader("🧩 Segment trends")
+
+st.markdown("""
+Tento graf ukazuje, ktorý segment generuje revenue v čase.
+
+👉 Pomáha odpovedať:
+- Ktorý segment rastie?
+- Ktorý segment klesá?
+""")
 
 if seg_mode in df_f.columns:
 
@@ -111,11 +163,19 @@ if seg_mode in df_f.columns:
         .reset_index()
     )
 
-    st.plotly_chart(px.area(seg_rev, x=STD_DATE, y=STD_AMOUNT, color=seg_mode))
-
+    fig = px.area(seg_rev, x=STD_DATE, y=STD_AMOUNT, color=seg_mode)
+    fig.update_layout(height=350)
+    st.plotly_chart(fig, use_container_width=True)
 
 # -------- 1. Revenue share --------
 st.subheader("📊 Revenue share by segment")
+
+st.markdown("""
+Ukazuje, ktorý segment generuje najväčší podiel revenue.
+
+👉 Použitie:
+- identifikácia najdôležitejších zákazníkov
+""")
 
 if seg_mode in df_f.columns:
 
@@ -135,10 +195,20 @@ if seg_mode in df_f.columns:
     st.dataframe(seg_summary)
 
     fig = px.pie(seg_summary, names=seg_mode, values="revenue")
-    st.plotly_chart(fig)
+    fig.update_layout(height=350)
+    st.plotly_chart(fig, use_container_width=True)
 
 # -------- 2. Segment comparison --------
 st.subheader("📋 Segment comparison")
+
+st.markdown("""
+Porovnanie segmentov podľa:
+- počtu zákazníkov  
+- revenue  
+- počtu nákupov  
+
+👉 Pomáha pochopiť hodnotu segmentov.
+""")
 
 if seg_mode in df_f.columns:
 
@@ -158,6 +228,14 @@ if seg_mode in df_f.columns:
 
 # -------- 3. Growth / decline --------
 st.subheader("📈 Segment growth")
+
+st.markdown("""
+Ukazuje, ktoré segmenty rastú alebo klesajú.
+
+👉 Najdôležitejší insight:
+- rastúci segment → investovať  
+- klesajúci segment → riešiť problém  
+""")
 
 if seg_mode in df_f.columns:
 
