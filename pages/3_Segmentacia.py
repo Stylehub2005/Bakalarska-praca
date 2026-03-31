@@ -19,6 +19,7 @@ DEFAULT_SETTINGS = {
     "segmentation_default_algorithm": "K-Means",
 }
 
+
 # ---------------- SETTINGS ----------------
 
 def load_settings():
@@ -39,6 +40,7 @@ def load_settings():
 
     return DEFAULT_SETTINGS
 
+
 # ---------------- LOAD ----------------
 
 def load_rfm(dataset_id):
@@ -50,13 +52,14 @@ def load_rfm(dataset_id):
         return pd.read_parquet(path)
     return None
 
+
 # ---------------- PREP ----------------
 
 def scaler_from_name(name):
     return StandardScaler() if name == "StandardScaler" else MinMaxScaler()
 
-def prepare_features(df_rfm, features, scaler_name, weights):
 
+def prepare_features(df_rfm, features, scaler_name, weights):
     X = df_rfm[features].copy()
 
     for col in features:
@@ -72,10 +75,10 @@ def prepare_features(df_rfm, features, scaler_name, weights):
 
     return X_scaled
 
+
 # ---------------- AUTO K ----------------
 
 def compute_k_metrics(X_scaled, k_min, k_max):
-
     results = []
 
     for k in range(k_min, k_max + 1):
@@ -100,9 +103,34 @@ def compute_k_metrics(X_scaled, k_min, k_max):
 
     return pd.DataFrame(results)
 
+
 # ---------------- UI ----------------
 
 st.title("🧠 Segmentácia zákazníkov")
+
+# ✅ ДОБАВЛЕНО ОБЪЯСНЕНИЕ
+st.markdown("""
+## 🎯 Na čo slúži táto stránka?
+
+Táto stránka umožňuje rozdeliť zákazníkov do skupín (**segmentov**), ktoré majú podobné správanie.
+
+👉 Výsledok:
+- skupiny zákazníkov (napr. VIP, low-value, rizikoví)
+- lepšie cielenie marketingu
+- pochopenie zákazníckeho správania
+
+---
+
+## ⚙️ Čo tu nastavuješ?
+
+Tu ovplyvňuješ:
+- **aké dáta použijeme (features)**
+- **ako ich upravíme (scaler)**
+- **aký algoritmus použijeme**
+- **koľko segmentov vytvoríme (k)**
+
+💡 Každá zmena → iný výsledok segmentácie.
+""")
 
 settings = load_settings()
 weights = settings["rfm_weights"]
@@ -121,7 +149,20 @@ if df_rfm is None:
 
 # ---------------- CONTROLS ----------------
 
-st.subheader("Segmentation settings")
+st.subheader("⚙️ Segmentation settings")
+
+# ✅ FEATURES EXPLAINED
+st.markdown("""
+### 📊 Features (premenné)
+
+Vyberáš, podľa čoho sa budú zákazníci deliť:
+
+- **recency** → ako nedávno nakúpil  
+- **frequency** → ako často nakupuje  
+- **monetary** → koľko míňa  
+
+💡 Odporúčanie: použi RFM (recency + frequency + monetary)
+""")
 
 features_all = [
     "recency", "frequency", "monetary",
@@ -135,10 +176,33 @@ features = st.multiselect(
     default=["recency", "frequency", "monetary"]
 )
 
+# ✅ SCALER EXPLAINED
+st.markdown("""
+### ⚖️ Scaler (normalizácia)
+
+Upravuje rozsah dát:
+
+- **StandardScaler** → štandardný (najčastejšie)  
+- **MinMaxScaler** → škáluje na 0–1  
+
+👉 Dôležité, lebo bez toho by napr. monetary dominovalo.
+""")
+
 scaler_name = st.selectbox(
     "Scaler",
     ["StandardScaler", "MinMaxScaler"]
 )
+
+# ✅ ALGORITHM EXPLAINED
+st.markdown("""
+### 🤖 Algorithm
+
+- **K-Means** → najčastejší, potrebuje počet klastrov (k)  
+- **DBSCAN** → hľadá hustoty (nájde outliers)  
+- **Hierarchical** → stromová segmentácia  
+
+💡 Odporúčanie: začni s K-Means
+""")
 
 algorithm = st.selectbox(
     "Algorithm",
@@ -150,6 +214,17 @@ k_max = settings["auto_k"]["k_max"]
 
 k = None
 if algorithm in ["K-Means", "Hierarchical"]:
+    st.markdown("""
+### 🔢 Number of clusters (k)
+
+Koľko skupín chceš vytvoriť.
+
+- malé k → veľké skupiny  
+- veľké k → detailné segmenty  
+
+👉 Použi Auto-k pre odporúčanie.
+""")
+
     k = st.slider("Number of clusters", k_min, k_max, 4)
 
 # ---------------- BUTTONS ----------------
@@ -168,13 +243,11 @@ with col3:
 # ---------------- RESET ----------------
 
 if reset_button:
-
     st.session_state.pop("df_clusters", None)
     st.session_state.pop("k_metrics", None)
     st.session_state.pop("best_k", None)
 
     st.success("Settings reset")
-
     st.rerun()
 
 # ---------------- WARNING ----------------
@@ -185,7 +258,6 @@ if "df_clusters" in st.session_state:
 # ---------------- AUTO K ----------------
 
 if auto_k_button:
-
     X_scaled = prepare_features(df_rfm, features, scaler_name, weights)
 
     k_metrics = compute_k_metrics(X_scaled, k_min, k_max)
@@ -199,7 +271,7 @@ k_metrics = st.session_state.get("k_metrics")
 
 if k_metrics is not None:
 
-    st.subheader("Auto-k analysis")
+    st.subheader("📊 Auto-k analysis")
 
     col1, col2 = st.columns(2)
 
@@ -249,7 +321,6 @@ df_clusters = st.session_state.get("df_clusters")
 if df_clusters is None:
     st.stop()
 
-# Cluster size
 st.subheader("Cluster sizes")
 
 counts = df_clusters["cluster"].value_counts().reset_index()
@@ -258,7 +329,6 @@ counts.columns = ["cluster", "customers"]
 st.dataframe(counts)
 st.plotly_chart(px.bar(counts, x="cluster", y="customers"))
 
-# Profile
 st.subheader("Cluster profile")
 
 profile = df_clusters.groupby("cluster").agg(
@@ -270,7 +340,6 @@ profile = df_clusters.groupby("cluster").agg(
 
 st.dataframe(profile)
 
-# Visualization
 st.subheader("Visualization")
 
 st.plotly_chart(px.scatter(df_clusters, x="recency", y="monetary", color="cluster"))
