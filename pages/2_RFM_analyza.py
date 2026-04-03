@@ -103,7 +103,6 @@ def add_weighted_scores(scored: pd.DataFrame, weights: dict) -> pd.DataFrame:
 
 
 def describe_segments_weighted(scored: pd.DataFrame, weights: dict) -> pd.DataFrame:
-
     wR = float(weights.get("R", 1.0))
     wF = float(weights.get("F", 1.0))
     wM = float(weights.get("M", 1.0))
@@ -114,7 +113,6 @@ def describe_segments_weighted(scored: pd.DataFrame, weights: dict) -> pd.DataFr
     df = scored.copy()
 
     def label(row):
-
         r = row["R_weighted"]
         fm = row["FM_weighted"]
 
@@ -165,7 +163,6 @@ def delete_rfm_from_disk(dataset_id: str) -> None:
 
 st.title("📊 RFM analýza")
 
-
 st.markdown("""
 ## 📊 Čo je RFM analýza?
 
@@ -196,11 +193,10 @@ min_date = df[STD_DATE].min()
 max_date = df[STD_DATE].max()
 
 snapshot_date = pd.to_datetime(
-    st.date_input("Snapshot date", value=(max_date + pd.Timedelta(days=1)).date())
+    st.date_input("Dátum snímky", value=(max_date + pd.Timedelta(days=1)).date())
 )
 
 if st.button("▶️ Spustiť výpočet RFM"):
-
     rfm = compute_rfm(df, snapshot_date)
     rfm_scored = rfm_scoring_quintiles(rfm)
     rfm_scored = add_weighted_scores(rfm_scored, weights)
@@ -214,7 +210,6 @@ df_rfm = st.session_state.get("df_rfm")
 if df_rfm is None:
     st.stop()
 
-
 st.markdown("""
 ### 🧾 Vysvetlenie stĺpcov
 
@@ -226,24 +221,26 @@ st.markdown("""
 
 st.dataframe(df_rfm.head(50))
 
-# ================= DISTRIBUTIONS =================
+st.subheader("Rozdelenia")
 
-st.subheader("Distributions")
-
-st.plotly_chart(px.histogram(df_rfm, x="recency"))
-st.plotly_chart(px.histogram(df_rfm, x="frequency"))
+st.plotly_chart(
+    px.histogram(df_rfm, x="recency", title="Rozdelenie recencie"),
+    use_container_width=True
+)
+st.plotly_chart(
+    px.histogram(df_rfm, x="frequency", title="Rozdelenie frekvencie"),
+    use_container_width=True
+)
 
 st.markdown("### 📈 Interpretácia dát")
 
 if df_rfm["frequency"].skew() > 1:
     st.warning("Väčšina zákazníkov nakupuje málo → typické pre e-commerce")
 
-# ================= FIXED FREQUENCY =================
+st.subheader("Frekvenčné kategórie")
 
-st.subheader("Frequency categories")
-
-bins = [0,1,2,3,5,10,50]
-labels = ["1","2","3","4-5","6-10","10+"]
+bins = [0, 1, 2, 3, 5, 10, 50]
+labels = ["1", "2", "3", "4-5", "6-10", "10+"]
 
 df_rfm["frequency_group"] = pd.cut(df_rfm["frequency"], bins=bins, labels=labels)
 
@@ -254,33 +251,34 @@ freq_counts = (
     .reset_index()
 )
 
-freq_counts.columns = ["Frequency group", "Customers"]
+freq_counts.columns = ["Frekvenčná skupina", "Počet zákazníkov"]
 
 st.plotly_chart(
     px.bar(
         freq_counts,
-        x="Frequency group",
-        y="Customers",
-        title="Customer distribution by purchase frequency"
+        x="Frekvenčná skupina",
+        y="Počet zákazníkov",
+        title="Rozdelenie zákazníkov podľa frekvencie nákupov"
     ),
     use_container_width=True
 )
 
-# ================= OUTLIERS =================
-
-st.subheader("Monetary outliers")
+st.subheader("Extrémne hodnoty monetárnej hodnoty")
 
 q99 = df_rfm["monetary"].quantile(0.99)
 
-st.markdown(f"""
-Top 1% zákazníkov generuje extrémny revenue.
+st.markdown("""
+Top 1 % zákazníkov generuje extrémne vysoké tržby.
 """)
 
-st.plotly_chart(px.box(df_rfm, y="monetary"))
+st.plotly_chart(
+    px.box(df_rfm, y="monetary", title="Extrémne hodnoty monetárnej hodnoty"),
+    use_container_width=True
+)
 
 # ================= SEGMENTS =================
 
-st.subheader("Segment overview")
+st.subheader("Prehľad segmentov")
 
 seg_counts = (
     df_rfm["Segment_label"]
@@ -288,13 +286,14 @@ seg_counts = (
     .reset_index()
 )
 
-seg_counts.columns = ["Segment", "Customers"]
+seg_counts.columns = ["Segment", "Počet zákazníkov"]
 
 st.plotly_chart(
     px.bar(
         seg_counts,
         x="Segment",
-        y="Customers"
+        y="Počet zákazníkov",
+        title="Rozdelenie zákazníkov podľa segmentov"
     ),
     use_container_width=True
 )
