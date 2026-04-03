@@ -46,7 +46,7 @@ if df_tx is not None and not df_tx.empty:
     col3.metric("Revenue", f"{df_tx[STD_AMOUNT].sum():.2f}")
     col4.metric("Avg order", f"{df_tx[STD_AMOUNT].mean():.2f}")
 else:
-    st.info("No dataset loaded yet. Please upload data first.")
+    st.info("Zatiaľ nie sú načítané žiadne dáta. Najskôr ich nahrajte.")
 
 st.divider()
 
