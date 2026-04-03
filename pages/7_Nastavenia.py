@@ -92,25 +92,25 @@ with st.form("settings_form"):
 - **Monetary (M)** – koľko míňa  
 
 💡 Príklad:
-- zvýšiť R → dôležitejší je "recentný zákazník"
-- zvýšiť M → dôležitejší je "veľký spender"
+- zvýšiť R → dôležitejší je „nedávno aktívny zákazník“
+- zvýšiť M → dôležitejší je zákazník s vysokou útratou
 """)
 
     c1, c2, c3 = st.columns(3)
 
     with c1:
-        wR = st.number_input("Weight Recency (R)", 0.0, 10.0, float(settings["rfm_weights"]["R"]), step=0.1)
+        wR = st.number_input("Váha recencie (R)", 0.0, 10.0, float(settings["rfm_weights"]["R"]), step=0.1)
 
     with c2:
-        wF = st.number_input("Weight Frequency (F)", 0.0, 10.0, float(settings["rfm_weights"]["F"]), step=0.1)
+        wF = st.number_input("Váha frekvencie (F)", 0.0, 10.0, float(settings["rfm_weights"]["F"]), step=0.1)
 
     with c3:
-        wM = st.number_input("Weight Monetary (M)", 0.0, 10.0, float(settings["rfm_weights"]["M"]), step=0.1)
+        wM = st.number_input("Váha monetárnej hodnoty (M)", 0.0, 10.0, float(settings["rfm_weights"]["M"]), step=0.1)
 
-    st.info("👉 Default = všetky váhy rovnaké → klasická RFM analýza")
+    st.info("👉 Predvolené nastavenie = všetky váhy sú rovnaké → klasická RFM analýza")
 
     # ---------- SCALER ----------
-    st.write("### Normalizácia dát (Scaler)")
+    st.write("### Normalizácia dát")
 
     st.markdown("""
 👉 Normalizácia zabezpečí, že všetky premenné majú rovnaký vplyv.
@@ -119,12 +119,12 @@ with st.form("settings_form"):
 - **MinMaxScaler** → škáluje hodnoty na interval 0–1
 
 💡 Použi:
-- StandardScaler → väčšina prípadov
+- StandardScaler → vo väčšine prípadov
 - MinMaxScaler → ak chceš interpretovateľné rozsahy
 """)
 
     default_scaler = st.selectbox(
-        "Default scaler",
+        "Predvolený scaler",
         ["StandardScaler", "MinMaxScaler"],
         index=["StandardScaler", "MinMaxScaler"].index(settings["default_scaler"])
     )
@@ -136,19 +136,22 @@ with st.form("settings_form"):
 👉 Vyber algoritmus clusteringu:
 
 - **K-Means** → najčastejší, rýchly, potrebuje k
-- **DBSCAN** → nájde hustoty (detekcia outlierov)
+- **DBSCAN** → nájde hustoty (detekcia odľahlých hodnôt)
 - **Hierarchical** → stromová segmentácia
 
 💡 Odporúčanie:
 - použi **K-Means** pre väčšinu prípadov
 """)
 
+    algo_options = ["K-Means", "DBSCAN", "Hierarchical (Agglomerative)"]
+    saved_algo = settings["segmentation_default_algorithm"]
+    if saved_algo == "Hierarchical":
+        saved_algo = "Hierarchical (Agglomerative)"
+
     default_algo = st.selectbox(
-        "Default algorithm",
-        ["K-Means", "DBSCAN", "Hierarchical (Agglomerative)"],
-        index=["K-Means", "DBSCAN", "Hierarchical (Agglomerative)"].index(
-            settings["segmentation_default_algorithm"]
-        )
+        "Predvolený algoritmus",
+        algo_options,
+        index=algo_options.index(saved_algo)
     )
 
     # ---------- AUTO-K ----------
@@ -161,11 +164,11 @@ with st.form("settings_form"):
 - k_max → maximálny počet klastrov
 
 💡 Príliš malé k → slabá segmentácia  
-💡 Príliš veľké k → presegmentovanie
+💡 Príliš veľké k → nadmerná segmentácia
 """)
 
-    k_min = st.slider("k_min", 2, 10, int(settings["auto_k"]["k_min"]))
-    k_max = st.slider("k_max", 2, 15, int(settings["auto_k"]["k_max"]))
+    k_min = st.slider("Minimálny počet klastrov (k_min)", 2, 10, int(settings["auto_k"]["k_min"]))
+    k_max = st.slider("Maximálny počet klastrov (k_max)", 2, 15, int(settings["auto_k"]["k_max"]))
 
     save_btn = st.form_submit_button("💾 Uložiť nastavenia", type="primary")
 
@@ -175,9 +178,13 @@ if save_btn:
     if k_max < k_min:
         k_min, k_max = k_max, k_min
 
+    normalized_algo = default_algo
+    if default_algo == "Hierarchical (Agglomerative)":
+        normalized_algo = "Hierarchical"
+
     settings["rfm_weights"] = {"R": wR, "F": wF, "M": wM}
     settings["default_scaler"] = default_scaler
-    settings["segmentation_default_algorithm"] = default_algo
+    settings["segmentation_default_algorithm"] = normalized_algo
     settings["auto_k"] = {"k_min": k_min, "k_max": k_max}
 
     save_settings(settings)
@@ -195,8 +202,8 @@ st.markdown("""
 👉 Táto analýza pomáha nájsť optimálny počet klastrov.
 
 Používajú sa:
-- **Elbow method** → hľadá "zlom"
-- **Silhouette score** → kvalita klastrov
+- **Elbow metóda** → hľadá „zlom“
+- **Silhouette skóre** → hodnotí kvalitu klastrov
 """)
 
 df_rfm = get_rfm_for_auto_k()
@@ -206,7 +213,7 @@ if df_rfm is None:
     st.stop()
 
 features = st.multiselect(
-    "Features",
+    "Premenné",
     ["recency", "frequency", "monetary", "R_score", "F_score", "M_score"],
     default=["recency", "frequency", "monetary"]
 )
@@ -237,11 +244,41 @@ for k in range(settings["auto_k"]["k_min"], settings["auto_k"]["k_max"] + 1):
 
 df_k = pd.DataFrame(rows)
 
-st.dataframe(df_k)
+preview_df = df_k.rename(columns={
+    "k": "Počet klastrov",
+    "inertia": "Inertia",
+    "silhouette": "Silhouette skóre"
+})
 
-st.plotly_chart(px.line(df_k, x="k", y="inertia", title="Elbow"))
+st.dataframe(preview_df)
 
-st.plotly_chart(px.line(df_k, x="k", y="silhouette", title="Silhouette"))
+st.plotly_chart(
+    px.line(
+        df_k,
+        x="k",
+        y="inertia",
+        title="Elbow metóda",
+        labels={
+            "k": "Počet klastrov",
+            "inertia": "Inertia"
+        }
+    ),
+    use_container_width=True
+)
+
+st.plotly_chart(
+    px.line(
+        df_k,
+        x="k",
+        y="silhouette",
+        title="Silhouette skóre",
+        labels={
+            "k": "Počet klastrov",
+            "silhouette": "Silhouette skóre"
+        }
+    ),
+    use_container_width=True
+)
 
 best_k = df_k.loc[df_k["silhouette"].idxmax(), "k"]
 

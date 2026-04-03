@@ -58,7 +58,7 @@ st.markdown("""
 2️⃣ RFM analýza  
 3️⃣ Segmentácia zákazníkov  
 4️⃣ Trendy a monitoring  
-5️⃣ Marketing insights  
+5️⃣ Marketingové odporúčania  
 6️⃣ Report & export  
 """)
 
@@ -96,7 +96,7 @@ with col4:
     st.page_link("pages/4_Trendy.py", label="📈 Trendy")
 
 with col5:
-    st.page_link("pages/5_Marketing_Insights.py", label="🎯 Marketing Insights")
+    st.page_link("pages/5_Marketing_Insights.py", label="🎯 Marketingové odporúčania")
 
 with col6:
     st.page_link("pages/6_Report.py", label="📄 Report")
