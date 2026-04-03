@@ -5,23 +5,25 @@ STD_CUSTOMER = "customer_id"
 STD_AMOUNT = "amount"
 
 st.set_page_config(
-    page_title="Customer Segmentation System",
+    page_title="Segmify",
     layout="wide"
 )
 
 # ---------------- TITLE ----------------
 
-st.title("📊 Customer Segmentation System")
+st.title("📊 Segmify - systém segmentácie zákazníkov")
 
 st.markdown("""
-### 🎓 Bachelor Thesis Project
+### 🎓 Bakalárska práca – projekt
 
-This application allows:
-- Customer behaviour analysis
-- RFM segmentation
-- Customer clustering
-- Trend monitoring
-- Marketing insights
+Táto aplikácia umožňuje:
+
+- Analýzu správania zákazníkov
+- RFM segmentáciu
+- Zhlukovanie zákazníkov
+- Monitorovanie trendov
+- Marketingové poznatky
+
 """)
 
 st.divider()
@@ -34,7 +36,7 @@ df_clusters = st.session_state.get("df_clusters")
 
 # ---------------- KPI ----------------
 
-st.subheader("📊 Overview")
+st.subheader("📊 Prehľad")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -48,9 +50,8 @@ else:
 
 st.divider()
 
-# ---------------- PIPELINE ----------------
 
-st.subheader("⚙️ Analysis pipeline")
+st.subheader("⚙️ Analytický proces")
 
 st.markdown("""
 1️⃣ Načítanie dát  
@@ -63,21 +64,20 @@ st.markdown("""
 
 st.divider()
 
-# ---------------- STATUS ----------------
 
-st.subheader("📁 System status")
+st.subheader("📁 Stav systému")
 
 col1, col2, col3 = st.columns(3)
 
-col1.metric("Data loaded", "✅" if df_tx is not None else "❌")
-col2.metric("RFM ready", "✅" if df_rfm is not None else "❌")
-col3.metric("Segmentation ready", "✅" if df_clusters is not None else "❌")
+col1.metric("Dáta načítané", "✅" if df_tx is not None else "❌")
+col2.metric("RFM pripravené", "✅" if df_rfm is not None else "❌")
+col3.metric("Segmentácia pripravená", "✅" if df_clusters is not None else "❌")
 
 st.divider()
 
 # ---------------- NAVIGATION ----------------
 
-st.subheader("🚀 Quick navigation")
+st.subheader("🚀 Rýchla navigácia")
 
 col1, col2, col3 = st.columns(3)
 
@@ -105,12 +105,11 @@ st.page_link("pages/7_Nastavenia.py", label="⚙️ Nastavenia")
 
 st.divider()
 
-# ---------------- FOOTER ----------------
 
 st.markdown("""
 ---
-💡 This system helps identify valuable customer segments and improve marketing strategies.
+💡 Tento systém pomáha identifikovať hodnotné segmenty zákazníkov a zlepšiť marketingové stratégie.
 
-👨‍🎓 Bachelor thesis project – Customer Segmentation System
+👨‍🎓 Projekt bakalárskej práce – systém segmentácie zákazníkov
 """)
 #https://bakalarska-praca-k6jwcdmpgsjuck4qyftlee.streamlit.app/
