@@ -41,10 +41,10 @@ st.subheader("📊 Prehľad")
 col1, col2, col3, col4 = st.columns(4)
 
 if df_tx is not None and not df_tx.empty:
-    col1.metric("Customers", f"{df_tx[STD_CUSTOMER].nunique():,}")
-    col2.metric("Transactions", f"{len(df_tx):,}")
-    col3.metric("Revenue", f"{df_tx[STD_AMOUNT].sum():.2f}")
-    col4.metric("Avg order", f"{df_tx[STD_AMOUNT].mean():.2f}")
+    col1.metric("Počet zákazníkov", f"{df_tx[STD_CUSTOMER].nunique():,}")
+    col2.metric("Počet transakcií", f"{len(df_tx):,}")
+    col3.metric("Tržby", f"{df_tx[STD_AMOUNT].sum():.2f}")
+    col4.metric("Priemerná hodnota objednávky", f"{df_tx[STD_AMOUNT].mean():.2f}")
 else:
     st.info("Zatiaľ nie sú načítané žiadne dáta. Najskôr ich nahrajte.")
 
