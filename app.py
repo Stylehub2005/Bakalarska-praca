@@ -96,10 +96,10 @@ with col4:
     st.page_link("pages/4_Trendy.py", label="📈 Trendy")
 
 with col5:
-    st.page_link("pages/5_Marketing_Insights.py", label="🎯 Marketingové odporúčania")
+    st.page_link("pages/5_Marketingove_poznatky.py", label="🎯 Marketingové odporúčania")
 
 with col6:
-    st.page_link("pages/6_Report.py", label="📄 Report")
+    st.page_link("pages/_Report_a_export.py", label="📄 Report")
 
 st.page_link("pages/7_Nastavenia.py", label="⚙️ Nastavenia")
 
