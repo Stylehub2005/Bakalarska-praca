@@ -41,9 +41,8 @@ def safe_read_parquet(path):
     return None
 
 
-# ================= UI =================
 
-st.title("📄 Report & Export")
+st.title("📄 Report a export")
 
 
 st.markdown("""
@@ -54,7 +53,7 @@ Táto stránka slúži ako **finálny výstup analýzy**.
 👉 Pomáha odpovedať na otázky:
 - Aký veľký je dataset?
 - Koľko máme zákazníkov?
-- Aký je celkový revenue?
+- Aké sú celkové tržby?
 - Je analýza kompletná?
 - Čo môžeme exportovať pre marketing?
 
@@ -85,9 +84,8 @@ df_clusters = st.session_state.get("df_clusters")
 if df_clusters is None:
     df_clusters = safe_read_parquet(clusters_path(dataset_id))
 
-# ================= KPI =================
 
-st.subheader("📊 Overview")
+st.subheader("📊 Prehľad")
 
 col1, col2, col3, col4 = st.columns(4)
 
@@ -96,10 +94,10 @@ customers = df_tx[STD_CUSTOMER].nunique()
 revenue = df_tx[STD_AMOUNT].sum()
 avg_order = df_tx[STD_AMOUNT].mean()
 
-col1.metric("Rows", f"{rows:,}")
-col2.metric("Customers", f"{customers:,}")
-col3.metric("Revenue", f"{revenue:.2f}")
-col4.metric("Avg order", f"{avg_order:.2f}")
+col1.metric("Počet riadkov", f"{rows:,}")
+col2.metric("Počet zákazníkov", f"{customers:,}")
+col3.metric("Tržby", f"{revenue:.2f}")
+col4.metric("Priemerná objednávka", f"{avg_order:.2f}")
 
 
 st.markdown("### 📈 Interpretácia")
@@ -110,9 +108,8 @@ if customers > 0:
 if revenue / customers > avg_order * 2:
     st.info("Existujú zákazníci s vysokou hodnotou (VIP potenciál)")
 
-# ================= STATUS =================
 
-st.subheader("📁 Analysis status")
+st.subheader("📁 Stav analýzy")
 
 rfm_ok = df_rfm is not None and not df_rfm.empty
 clusters_ok = df_clusters is not None and not df_clusters.empty
@@ -127,38 +124,36 @@ if rfm_ok and not clusters_ok:
     st.warning("⚠️ Spusti segmentáciu pre marketingové využitie")
 
 if clusters_ok:
-    st.success("✅ Analýza je kompletná – pripravené na marketing")
+    st.success("✅ Analýza je kompletná – pripravená na marketing")
 
-# ================= SUMMARY =================
 
-st.subheader("📊 Summary")
+st.subheader("📊 Súhrn")
 
 summary = pd.DataFrame({
-    "rows": [rows],
-    "customers": [customers],
-    "revenue": [revenue],
-    "avg_order": [avg_order],
-    "has_rfm": [rfm_ok],
-    "has_clusters": [clusters_ok],
+    "Počet riadkov": [rows],
+    "Počet zákazníkov": [customers],
+    "Tržby": [revenue],
+    "Priemerná objednávka": [avg_order],
+    "RFM dostupné": [rfm_ok],
+    "Segmentácia dostupná": [clusters_ok],
 })
 
 st.dataframe(summary)
 
-# ================= EXPORT =================
 
 st.subheader("📥 Export dát")
 
 st.markdown("""
 👉 Tieto dáta môžeš použiť:
 - v CRM systémoch
-- v email marketingu
+- v e-mail marketingu
 - v BI nástrojoch (Power BI, Tableau)
 """)
 
 tx_csv = df_tx.to_csv(index=False).encode("utf-8")
 
 st.download_button(
-    "⬇️ Download transactions",
+    "⬇️ Stiahnuť transakcie",
     tx_csv,
     f"{dataset_id}_transactions.csv"
 )
@@ -167,7 +162,7 @@ if rfm_ok:
     rfm_csv = df_rfm.to_csv(index=False).encode("utf-8")
 
     st.download_button(
-        "⬇️ Download RFM",
+        "⬇️ Stiahnuť RFM",
         rfm_csv,
         f"{dataset_id}_rfm.csv"
     )
@@ -176,16 +171,15 @@ if clusters_ok:
     clusters_csv = df_clusters.to_csv(index=False).encode("utf-8")
 
     st.download_button(
-        "⬇️ Download clusters",
+        "⬇️ Stiahnuť klastre",
         clusters_csv,
         f"{dataset_id}_clusters.csv"
     )
 
-# ================= ZIP =================
 
 st.subheader("📦 Export všetkého")
 
-if st.button("Create ZIP export"):
+if st.button("Vytvoriť ZIP export"):
 
     zip_buffer = io.BytesIO()
 
@@ -199,15 +193,14 @@ if st.button("Create ZIP export"):
             z.writestr("clusters.csv", df_clusters.to_csv(index=False))
 
     st.download_button(
-        "⬇️ Download ZIP",
+        "⬇️ Stiahnuť ZIP",
         zip_buffer.getvalue(),
         f"{dataset_id}_export.zip",
         mime="application/zip"
     )
 
-# ================= FINAL MESSAGE =================
 
-st.success("✅ Report pripravený")
+st.success("✅ Report je pripravený")
 
 st.markdown("""
 ## 🚀 Čo ďalej?
