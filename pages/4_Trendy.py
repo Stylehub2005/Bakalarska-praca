@@ -59,9 +59,9 @@ st.markdown("""
 
 Táto stránka slúži na sledovanie vývoja biznisu v čase:
 
-- 📈 ako sa mení revenue  
+- 📈 ako sa menia tržby  
 - 👥 ako rastie počet zákazníkov  
-- 💰 ako sa správa hodnota objednávok  
+- 💰 ako sa vyvíja hodnota objednávok  
 - 🧩 ako sa správajú jednotlivé segmenty  
 
 👉 Cieľ: odhaliť trendy, problémy a príležitosti.
@@ -75,112 +75,187 @@ if df_tx is None:
 df_cl = get_clusters()
 df = add_segments(df_tx, df_cl)
 
+
 # -------- FILTERS --------
+
 min_d, max_d = df[STD_DATE].min(), df[STD_DATE].max()
 
 with st.form("filters"):
+
     c1, c2, c3 = st.columns(3)
 
     with c1:
-        start = st.date_input("Od", min_d.date())
-    with c2:
-        end = st.date_input("Do", max_d.date())
-    with c3:
-        gran = st.selectbox("Agregácia", ["Day", "Week", "Month"])
+        start = st.date_input("Od dátumu", min_d.date())
 
-    seg_mode = st.radio("Segment by", ["cluster", "Segment_label"], horizontal=True)
+    with c2:
+        end = st.date_input("Do dátumu", max_d.date())
+
+    with c3:
+        gran = st.selectbox(
+            "Agregácia",
+            ["Day", "Week", "Month"],
+            format_func=lambda x: {
+                "Day": "Deň",
+                "Week": "Týždeň",
+                "Month": "Mesiac"
+            }[x]
+        )
+
+    seg_mode = st.radio(
+        "Segmentovať podľa",
+        ["cluster", "Segment_label"],
+        format_func=lambda x: {
+            "cluster": "Klaster",
+            "Segment_label": "Segment"
+        }[x],
+        horizontal=True
+    )
 
     run = st.form_submit_button("▶️ Spustiť monitoring")
 
 if not run:
     st.stop()
 
-df_f = df[(df[STD_DATE] >= pd.to_datetime(start)) & (df[STD_DATE] <= pd.to_datetime(end))]
 
-rule = {"Day": "D", "Week": "W", "Month": "M"}[gran]
+df_f = df[
+    (df[STD_DATE] >= pd.to_datetime(start))
+    & (df[STD_DATE] <= pd.to_datetime(end))
+]
+
+
+rule = {
+    "Day": "D",
+    "Week": "W",
+    "Month": "M"
+}[gran]
+
+
 trend = resample_freq(df_f, rule)
 
+
 # -------- KPI --------
+
 st.subheader("KPI")
 
-st.markdown("""
-💡 Rýchly prehľad aktuálneho výkonu:
-- revenue → celkový obrat  
-- transactions → počet nákupov  
-- customers → počet zákazníkov  
-- avg order → priemerná hodnota objednávky  
-""")
-
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Revenue", f"{df_f[STD_AMOUNT].sum():.2f}")
-c2.metric("Transactions", len(df_f))
-c3.metric("Customers", df_f[STD_CUSTOMER].nunique())
-c4.metric("Avg order", f"{df_f[STD_AMOUNT].mean():.2f}")
+
+c1.metric(
+    "Tržby",
+    f"{df_f[STD_AMOUNT].sum():.2f}"
+)
+
+c2.metric(
+    "Počet nákupov",
+    len(df_f)
+)
+
+c3.metric(
+    "Počet zákazníkov",
+    df_f[STD_CUSTOMER].nunique()
+)
+
+c4.metric(
+    "Priemerná hodnota objednávky",
+    f"{df_f[STD_AMOUNT].mean():.2f}"
+)
+
 
 # -------- TRENDS --------
+
 st.subheader("📈 Hlavné trendy")
 
-st.markdown("""
-Tieto grafy ukazujú vývoj v čase:
+fig1 = px.line(
+    trend,
+    x=STD_DATE,
+    y="revenue",
+    title="Vývoj tržieb",
+    labels={
+        STD_DATE: "Dátum",
+        "revenue": "Tržby"
+    }
+)
 
-- Revenue → rast / pokles biznisu  
-- Customers → akvizícia zákazníkov  
-- Avg order → kvalita nákupov  
-
-👉 Sleduj:
-- rast → pozitívny trend  
-- pokles → problém  
-""")
-
-fig1 = px.line(trend, x=STD_DATE, y="revenue", title="Revenue trend")
 fig1.update_layout(height=300)
+
 st.plotly_chart(fig1, use_container_width=True)
 
-fig2 = px.line(trend, x=STD_DATE, y="active_customers", title="Customers trend")
+
+fig2 = px.line(
+    trend,
+    x=STD_DATE,
+    y="active_customers",
+    title="Vývoj počtu zákazníkov",
+    labels={
+        STD_DATE: "Dátum",
+        "active_customers": "Aktívni zákazníci"
+    }
+)
+
 fig2.update_layout(height=300)
+
 st.plotly_chart(fig2, use_container_width=True)
 
-fig3 = px.line(trend, x=STD_DATE, y="avg_order_value", title="Avg order value")
+
+fig3 = px.line(
+    trend,
+    x=STD_DATE,
+    y="avg_order_value",
+    title="Priemerná hodnota objednávky",
+    labels={
+        STD_DATE: "Dátum",
+        "avg_order_value": "Priemerná hodnota objednávky"
+    }
+)
+
 fig3.update_layout(height=300)
+
 st.plotly_chart(fig3, use_container_width=True)
 
+
 # -------- SEGMENT TRENDS --------
-st.subheader("🧩 Segment trends")
 
-st.markdown("""
-Tento graf ukazuje, ktorý segment generuje revenue v čase.
-
-👉 Pomáha odpovedať:
-- Ktorý segment rastie?
-- Ktorý segment klesá?
-""")
+st.subheader("🧩 Trendy segmentov")
 
 if seg_mode in df_f.columns:
 
     seg_rev = (
-        df_f.groupby([pd.Grouper(key=STD_DATE, freq=rule), seg_mode])[STD_AMOUNT]
+        df_f
+        .groupby([
+            pd.Grouper(key=STD_DATE, freq=rule),
+            seg_mode
+        ])[STD_AMOUNT]
         .sum()
         .reset_index()
     )
 
-    fig = px.area(seg_rev, x=STD_DATE, y=STD_AMOUNT, color=seg_mode)
+    fig = px.area(
+        seg_rev,
+        x=STD_DATE,
+        y=STD_AMOUNT,
+        color=seg_mode,
+        labels={
+            STD_DATE: "Dátum",
+            STD_AMOUNT: "Tržby",
+            "cluster": "Klaster",
+            "Segment_label": "Segment"
+        },
+        title="Vývoj tržieb podľa segmentov"
+    )
+
     fig.update_layout(height=350)
+
     st.plotly_chart(fig, use_container_width=True)
 
-# -------- 1. Revenue share --------
-st.subheader("📊 Revenue share by segment")
 
-st.markdown("""
-Ukazuje, ktorý segment generuje najväčší podiel revenue.
+# -------- Revenue share --------
 
-👉 Použitie:
-- identifikácia najdôležitejších zákazníkov
-""")
+st.subheader("📊 Podiel tržieb podľa segmentu")
 
 if seg_mode in df_f.columns:
 
     seg_summary = (
-        df_f.groupby(seg_mode)
+        df_f
+        .groupby(seg_mode)
         .agg(
             customers=(STD_CUSTOMER, "nunique"),
             revenue=(STD_AMOUNT, "sum"),
@@ -190,30 +265,44 @@ if seg_mode in df_f.columns:
     )
 
     total = seg_summary["revenue"].sum()
-    seg_summary["share_%"] = (seg_summary["revenue"] / total * 100).round(2)
+
+    seg_summary["share_%"] = (
+        seg_summary["revenue"] / total * 100
+    ).round(2)
+
+
+    seg_summary.columns = [
+        "Segment",
+        "Počet zákazníkov",
+        "Tržby",
+        "Priemerná objednávka",
+        "Podiel %"
+    ]
 
     st.dataframe(seg_summary)
 
-    fig = px.pie(seg_summary, names=seg_mode, values="revenue")
+
+    fig = px.pie(
+        seg_summary,
+        names="Segment",
+        values="Tržby",
+        title="Podiel segmentov na tržbách"
+    )
+
     fig.update_layout(height=350)
+
     st.plotly_chart(fig, use_container_width=True)
 
-# -------- 2. Segment comparison --------
-st.subheader("📋 Segment comparison")
 
-st.markdown("""
-Porovnanie segmentov podľa:
-- počtu zákazníkov  
-- revenue  
-- počtu nákupov  
+# -------- comparison --------
 
-👉 Pomáha pochopiť hodnotu segmentov.
-""")
+st.subheader("📋 Porovnanie segmentov")
 
 if seg_mode in df_f.columns:
 
     comp = (
-        df_f.groupby(seg_mode)
+        df_f
+        .groupby(seg_mode)
         .agg(
             customers=(STD_CUSTOMER, "nunique"),
             transactions=(STD_AMOUNT, "count"),
@@ -224,39 +313,66 @@ if seg_mode in df_f.columns:
 
     comp["avg_order"] = comp["revenue"] / comp["transactions"]
 
-    st.dataframe(comp.sort_values("revenue", ascending=False))
+    comp.columns = [
+        "Segment",
+        "Počet zákazníkov",
+        "Počet nákupov",
+        "Tržby",
+        "Priemerná objednávka"
+    ]
 
-# -------- 3. Growth / decline --------
-st.subheader("📈 Segment growth")
+    st.dataframe(
+        comp.sort_values("Tržby", ascending=False)
+    )
 
-st.markdown("""
-Ukazuje, ktoré segmenty rastú alebo klesajú.
 
-👉 Najdôležitejší insight:
-- rastúci segment → investovať  
-- klesajúci segment → riešiť problém  
-""")
+# -------- growth --------
+
+st.subheader("📈 Rast segmentov")
 
 if seg_mode in df_f.columns:
 
     df_f["month"] = df_f[STD_DATE].dt.to_period("M")
 
     growth = (
-        df_f.groupby(["month", seg_mode])[STD_AMOUNT]
+        df_f
+        .groupby(["month", seg_mode])[STD_AMOUNT]
         .sum()
         .reset_index()
     )
 
-    pivot = growth.pivot(index="month", columns=seg_mode, values=STD_AMOUNT)
+    pivot = growth.pivot(
+        index="month",
+        columns=seg_mode,
+        values=STD_AMOUNT
+    )
 
-    growth_rate = pivot.pct_change().mean().sort_values(ascending=False)
+    growth_rate = (
+        pivot
+        .pct_change()
+        .mean()
+        .sort_values(ascending=False)
+    )
+
 
     gdf = growth_rate.reset_index()
-    gdf.columns = [seg_mode, "growth"]
+
+    gdf.columns = [
+        "Segment",
+        "Priemerný rast"
+    ]
+
 
     st.dataframe(gdf)
 
-    st.success(f"🚀 Top growing: {gdf.iloc[0][seg_mode]}")
-    st.warning(f"📉 Worst: {gdf.iloc[-1][seg_mode]}")
 
-st.success("Monitoring ready")
+    st.success(
+        f"🚀 Najrýchlejšie rastie: {gdf.iloc[0]['Segment']}"
+    )
+
+    st.warning(
+        f"📉 Najviac klesá: {gdf.iloc[-1]['Segment']}"
+    )
+
+
+st.success("Monitoring pripravený")
