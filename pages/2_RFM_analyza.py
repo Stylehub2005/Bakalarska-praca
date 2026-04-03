@@ -117,24 +117,24 @@ def describe_segments_weighted(scored: pd.DataFrame, weights: dict) -> pd.DataFr
         fm = row["FM_weighted"]
 
         if r >= 0.8 * max_R and fm >= 0.8 * max_FM:
-            return "VIP / Champions"
+            return "VIP / Šampióni"
 
         if r >= 0.8 * max_R and fm >= 0.6 * max_FM:
-            return "Loyal / Active"
+            return "Lojálni / Aktívni"
 
         if r >= 0.6 * max_R and fm >= 0.6 * max_FM:
-            return "Potential Loyalists"
+            return "Potenciálne lojálni"
 
         if r <= 0.4 * max_R and fm >= 0.7 * max_FM:
-            return "At Risk (High value)"
+            return "Ohrození (vysoká hodnota)"
 
         if r <= 0.4 * max_R and fm <= 0.4 * max_FM:
-            return "Lost"
+            return "Stratení"
 
         if r >= 0.8 * max_R and fm <= 0.4 * max_FM:
-            return "New / Low spend"
+            return "Noví / nízka útrata"
 
-        return "Regular"
+        return "Bežní"
 
     df["Segment_label"] = df.apply(label, axis=1)
 
