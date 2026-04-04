@@ -52,7 +52,7 @@ def resample_freq(df, rule):
 
 # ================= UI =================
 
-st.title("📈 Trendy a monitoring")
+st.title("📈 Trendy a monitorovanie")
 
 st.markdown("""
 ## 🎯 Na čo slúži táto stránka?
