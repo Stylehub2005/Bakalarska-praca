@@ -82,13 +82,13 @@ st.subheader("🚀 Rýchla navigácia")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.page_link("pages/1_Nacitanie_dat.py", label="📂 Načítanie dát")
+    st.page_link("pages/1_Načítanie_dát.py", label="📂 Načítanie dát")
 
 with col2:
-    st.page_link("pages/2_RFM_analyza.py", label="📊 RFM analýza")
+    st.page_link("pages/2_RFM_analýza.py", label="📊 RFM analýza")
 
 with col3:
-    st.page_link("pages/3_Segmentacia.py", label="🧠 Segmentácia")
+    st.page_link("pages/3_Segmentácia.py", label="🧠 Segmentácia")
 
 col4, col5, col6 = st.columns(3)
 
