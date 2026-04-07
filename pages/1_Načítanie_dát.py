@@ -15,7 +15,7 @@ ANALYSES_DIR = os.path.join(DATA_DIR, "analyses")
 REGISTRY_PATH = os.path.join(DATA_DIR, "registry.json")
 
 
-# ---------- STORAGE ----------
+
 def ensure_storage():
     os.makedirs(DATASETS_DIR, exist_ok=True)
     os.makedirs(ANALYSES_DIR, exist_ok=True)
@@ -44,7 +44,7 @@ def delete_dataset(dataset_id):
         os.remove(p)
 
 
-# ---------- CSV ----------
+
 def load_csv_safely(file):
     for sep in [",", ";", "\t", "|"]:
         try:
@@ -58,7 +58,7 @@ def load_csv_safely(file):
     return pd.read_csv(file, sep=None, engine="python")
 
 
-# ---------- CORE ----------
+
 def to_standard(df, c, d, mode, a=None, q=None, p=None):
     df = df.copy()
 
@@ -81,12 +81,12 @@ def clean(df):
     return df
 
 
-# ---------- UI ----------
 st.title("📂 Načítanie dát")
 
-# 🔥 ДОБАВЛЕНО — ИНСТРУКЦИЯ
 st.markdown("""
 ### 📌 Ako pripraviť dataset
+
+Táto aplikácia pracuje s **transakčnými dátami o nákupoch zákazníkov**.
 
 Dataset musí obsahovať:
 
@@ -95,6 +95,13 @@ Dataset musí obsahovať:
 - 💰 **Hodnota transakcie**:
   - buď ako **amount**
   - alebo ako **Quantity × Price**
+
+💡 **Poznámka:**  
+Pre **RFM analýzu** nie je potrebné evidovať konkrétny produkt alebo typ nákupu.  
+Model analyzuje najmä **nákupné správanie zákazníka**, teda:
+- ako **nedávno** zákazník nakúpil,
+- ako **často** nakupuje,
+- a akú má **celkovú hodnotu nákupov**.
 
 ---
 
@@ -118,7 +125,7 @@ Customer | Date | Quantity | Price
 
 registry = load_registry()
 
-# ================= HISTORY =================
+
 st.subheader("🗃 História datasetov")
 
 datasets = registry["datasets"]
@@ -172,7 +179,7 @@ else:
 
 st.divider()
 
-# ================= UPLOAD =================
+
 st.subheader("⬆️ Nahrať CSV")
 
 file = st.file_uploader("Upload CSV")
@@ -187,7 +194,6 @@ if file:
 
     st.subheader("🧩 Mapovanie")
 
-    # 🔥 подсказки
     st.caption("Vyber stĺpec identifikujúci zákazníka")
     customer = st.selectbox("Customer", cols)
 
@@ -208,10 +214,9 @@ if file:
         price = st.selectbox("Price", cols)
         amount = None
 
-    # 🔥 предупреждение
     st.warning("⚠️ Každý stĺpec musí byť unikátny")
 
-    # VALIDATION
+
     selected_cols = [customer, date]
 
     if mode == "Amount":
