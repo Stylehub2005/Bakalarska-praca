@@ -15,6 +15,20 @@ DEFAULT_SETTINGS = {
     "default_scaler": "StandardScaler",
     "auto_k": {"k_min": 2, "k_max": 10},
     "segmentation_default_algorithm": "K-Means",
+    "segment_rules": {
+        "vip_r_min": 0.8,
+        "vip_fm_min": 0.8,
+        "loyal_r_min": 0.8,
+        "loyal_fm_min": 0.6,
+        "potential_r_min": 0.6,
+        "potential_fm_min": 0.6,
+        "risk_r_max": 0.4,
+        "risk_fm_min": 0.7,
+        "lost_r_max": 0.4,
+        "lost_fm_max": 0.4,
+        "new_r_min": 0.8,
+        "new_fm_max": 0.4,
+    },
 }
 
 
@@ -35,6 +49,7 @@ def load_settings():
         merged.update(s)
         merged["rfm_weights"] = {**DEFAULT_SETTINGS["rfm_weights"], **merged.get("rfm_weights", {})}
         merged["auto_k"] = {**DEFAULT_SETTINGS["auto_k"], **merged.get("auto_k", {})}
+        merged["segment_rules"] = {**DEFAULT_SETTINGS["segment_rules"], **merged.get("segment_rules", {})}
         return merged
 
     except:
@@ -57,6 +72,7 @@ def get_rfm_for_auto_k():
 def scaler_from_name(name):
     return StandardScaler() if name == "StandardScaler" else MinMaxScaler()
 
+
 st.title("⚙ Nastavenia")
 
 st.markdown("""
@@ -71,7 +87,6 @@ Táto stránka umožňuje nastaviť parametre, ktoré ovplyvňujú:
 """)
 
 settings = load_settings()
-
 
 st.subheader("Základné nastavenia")
 
@@ -162,7 +177,62 @@ with st.form("settings_form"):
     k_min = st.slider("Minimálny počet klastrov (k_min)", 2, 10, int(settings["auto_k"]["k_min"]))
     k_max = st.slider("Maximálny počet klastrov (k_max)", 2, 15, int(settings["auto_k"]["k_max"]))
 
+    st.write("### Pravidlá segmentácie")
+
+    st.markdown("""
+👉 Tu môžeš upraviť **prahové hodnoty**, podľa ktorých sa zákazníci priraďujú do segmentov.
+
+Hodnoty sú zadané ako **podiel maxima**:
+- napr. **0.8 = 80 % maxima**
+- pravidlá sa používajú pri tvorbe segmentov v RFM analýze
+""")
+
+    rules = settings["segment_rules"]
+
+    st.markdown("**VIP / Šampióni**")
+    c1, c2 = st.columns(2)
+    with c1:
+        vip_r_min = st.number_input("VIP – minimálne R", 0.0, 1.0, float(rules["vip_r_min"]), step=0.05, key="vip_r_min")
+    with c2:
+        vip_fm_min = st.number_input("VIP – minimálne F+M", 0.0, 1.0, float(rules["vip_fm_min"]), step=0.05, key="vip_fm_min")
+
+    st.markdown("**Lojálni / Aktívni**")
+    c1, c2 = st.columns(2)
+    with c1:
+        loyal_r_min = st.number_input("Lojálni – minimálne R", 0.0, 1.0, float(rules["loyal_r_min"]), step=0.05, key="loyal_r_min")
+    with c2:
+        loyal_fm_min = st.number_input("Lojálni – minimálne F+M", 0.0, 1.0, float(rules["loyal_fm_min"]), step=0.05, key="loyal_fm_min")
+
+    st.markdown("**Potenciálne lojálni**")
+    c1, c2 = st.columns(2)
+    with c1:
+        potential_r_min = st.number_input("Potenciálni – minimálne R", 0.0, 1.0, float(rules["potential_r_min"]), step=0.05, key="potential_r_min")
+    with c2:
+        potential_fm_min = st.number_input("Potenciálni – minimálne F+M", 0.0, 1.0, float(rules["potential_fm_min"]), step=0.05, key="potential_fm_min")
+
+    st.markdown("**Ohrození**")
+    c1, c2 = st.columns(2)
+    with c1:
+        risk_r_max = st.number_input("Ohrození – maximálne R", 0.0, 1.0, float(rules["risk_r_max"]), step=0.05, key="risk_r_max")
+    with c2:
+        risk_fm_min = st.number_input("Ohrození – minimálne F+M", 0.0, 1.0, float(rules["risk_fm_min"]), step=0.05, key="risk_fm_min")
+
+    st.markdown("**Stratení**")
+    c1, c2 = st.columns(2)
+    with c1:
+        lost_r_max = st.number_input("Stratení – maximálne R", 0.0, 1.0, float(rules["lost_r_max"]), step=0.05, key="lost_r_max")
+    with c2:
+        lost_fm_max = st.number_input("Stratení – maximálne F+M", 0.0, 1.0, float(rules["lost_fm_max"]), step=0.05, key="lost_fm_max")
+
+    st.markdown("**Noví / nízka útrata**")
+    c1, c2 = st.columns(2)
+    with c1:
+        new_r_min = st.number_input("Noví – minimálne R", 0.0, 1.0, float(rules["new_r_min"]), step=0.05, key="new_r_min")
+    with c2:
+        new_fm_max = st.number_input("Noví – maximálne F+M", 0.0, 1.0, float(rules["new_fm_max"]), step=0.05, key="new_fm_max")
+
     save_btn = st.form_submit_button("💾 Uložiť nastavenia", type="primary")
+
 if save_btn:
 
     if k_max < k_min:
@@ -176,6 +246,20 @@ if save_btn:
     settings["default_scaler"] = default_scaler
     settings["segmentation_default_algorithm"] = normalized_algo
     settings["auto_k"] = {"k_min": k_min, "k_max": k_max}
+    settings["segment_rules"] = {
+        "vip_r_min": vip_r_min,
+        "vip_fm_min": vip_fm_min,
+        "loyal_r_min": loyal_r_min,
+        "loyal_fm_min": loyal_fm_min,
+        "potential_r_min": potential_r_min,
+        "potential_fm_min": potential_fm_min,
+        "risk_r_max": risk_r_max,
+        "risk_fm_min": risk_fm_min,
+        "lost_r_max": lost_r_max,
+        "lost_fm_max": lost_fm_max,
+        "new_r_min": new_r_min,
+        "new_fm_max": new_fm_max,
+    }
 
     save_settings(settings)
     st.session_state["settings"] = settings
@@ -183,7 +267,6 @@ if save_btn:
     st.success("✅ Nastavenia uložené")
 
 st.divider()
-
 
 st.subheader("📊 Auto-k analýza")
 
