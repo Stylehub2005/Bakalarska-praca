@@ -208,7 +208,6 @@ summary = summary.rename(columns={
 if "Segment_label" in summary.columns and "Segment_label" != "Segment":
     summary = summary.rename(columns={"Segment_label": "Označenie segmentu"})
 
-# zachovanie pomocných názvов для функции segment_recommendation
 if "Priemerné R skóre" in summary.columns:
     summary["avg_R"] = summary["Priemerné R skóre"]
 if "Priemerné F skóre" in summary.columns:
@@ -268,7 +267,6 @@ preview_df = preview_df.rename(columns={k: v for k, v in rename_preview.items() 
 
 st.dataframe(preview_df, use_container_width=True)
 
-# export selected segment customer list
 export_cols = [STD_CUSTOMER]
 if "Segment_label" in df_seg.columns:
     export_cols.append("Segment_label")

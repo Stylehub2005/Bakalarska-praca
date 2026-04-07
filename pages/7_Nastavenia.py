@@ -57,9 +57,6 @@ def get_rfm_for_auto_k():
 def scaler_from_name(name):
     return StandardScaler() if name == "StandardScaler" else MinMaxScaler()
 
-
-# ================= UI =================
-
 st.title("⚙ Nastavenia")
 
 st.markdown("""
@@ -75,13 +72,11 @@ Táto stránka umožňuje nastaviť parametre, ktoré ovplyvňujú:
 
 settings = load_settings()
 
-# ================= FORM =================
 
 st.subheader("Základné nastavenia")
 
 with st.form("settings_form"):
 
-    # ---------- RFM WEIGHTS ----------
     st.write("### Váhy RFM")
 
     st.markdown("""
@@ -109,7 +104,6 @@ with st.form("settings_form"):
 
     st.info("👉 Predvolené nastavenie = všetky váhy sú rovnaké → klasická RFM analýza")
 
-    # ---------- SCALER ----------
     st.write("### Normalizácia dát")
 
     st.markdown("""
@@ -129,7 +123,6 @@ with st.form("settings_form"):
         index=["StandardScaler", "MinMaxScaler"].index(settings["default_scaler"])
     )
 
-    # ---------- ALGORITHM ----------
     st.write("### Algoritmus segmentácie")
 
     st.markdown("""
@@ -154,7 +147,6 @@ with st.form("settings_form"):
         index=algo_options.index(saved_algo)
     )
 
-    # ---------- AUTO-K ----------
     st.write("### Auto-k (výber počtu klastrov)")
 
     st.markdown("""
@@ -171,8 +163,6 @@ with st.form("settings_form"):
     k_max = st.slider("Maximálny počet klastrov (k_max)", 2, 15, int(settings["auto_k"]["k_max"]))
 
     save_btn = st.form_submit_button("💾 Uložiť nastavenia", type="primary")
-
-# ---------- SAVE ----------
 if save_btn:
 
     if k_max < k_min:
@@ -194,7 +184,6 @@ if save_btn:
 
 st.divider()
 
-# ================= AUTO-K =================
 
 st.subheader("📊 Auto-k analýza")
 

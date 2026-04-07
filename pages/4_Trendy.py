@@ -107,8 +107,6 @@ def build_growth_diagnostics(df_f, seg_mode):
     return gdf, events_df, best_event, worst_event
 
 
-# ================= UI =================
-
 st.title("📈 Trendy a monitorovanie")
 
 st.markdown("""
@@ -132,8 +130,6 @@ if df_tx is None:
 df_cl = get_clusters()
 df = add_segments(df_tx, df_cl)
 
-
-# -------- FILTERS --------
 
 min_d, max_d = df[STD_DATE].min(), df[STD_DATE].max()
 
@@ -186,7 +182,6 @@ rule = {
 
 trend = resample_freq(df_f, rule)
 
-# -------- KPI --------
 
 st.subheader("KPI")
 
@@ -212,7 +207,6 @@ c4.metric(
     f"{df_f[STD_AMOUNT].mean():.2f}"
 )
 
-# -------- TRENDS --------
 
 st.subheader("📈 Hlavné trendy")
 
@@ -261,7 +255,6 @@ fig3.update_layout(height=300)
 
 st.plotly_chart(fig3, use_container_width=True)
 
-# -------- SEGMENT TRENDS --------
 
 st.subheader("🧩 Trendy segmentov")
 
@@ -318,7 +311,6 @@ if seg_mode in df_f.columns:
         fig_single.update_layout(height=300)
         st.plotly_chart(fig_single, use_container_width=True)
 
-# -------- Revenue share --------
 
 st.subheader("📊 Podiel tržieb podľa segmentu")
 
@@ -362,7 +354,6 @@ if seg_mode in df_f.columns:
 
     st.plotly_chart(fig, use_container_width=True)
 
-# -------- comparison --------
 
 st.subheader("📋 Porovnanie segmentov")
 
@@ -393,7 +384,6 @@ if seg_mode in df_f.columns:
         comp.sort_values("Tržby", ascending=False)
     )
 
-# -------- growth --------
 
 st.subheader("📈 Rast segmentov")
 

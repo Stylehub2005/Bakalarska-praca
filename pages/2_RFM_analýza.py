@@ -16,6 +16,20 @@ DEFAULT_SETTINGS = {
     "default_scaler": "StandardScaler",
     "auto_k": {"k_min": 2, "k_max": 10},
     "segmentation_default_algorithm": "K-Means",
+    "segment_rules": {
+        "vip_r_min": 0.8,
+        "vip_fm_min": 0.8,
+        "loyal_r_min": 0.8,
+        "loyal_fm_min": 0.6,
+        "potential_r_min": 0.6,
+        "potential_fm_min": 0.6,
+        "risk_r_max": 0.4,
+        "risk_fm_min": 0.7,
+        "lost_r_max": 0.4,
+        "lost_fm_max": 0.4,
+        "new_r_min": 0.8,
+        "new_fm_max": 0.4,
+    },
 }
 
 
@@ -26,6 +40,7 @@ def load_settings() -> dict:
         merged.update(s)
         merged["rfm_weights"] = {**DEFAULT_SETTINGS["rfm_weights"], **merged.get("rfm_weights", {})}
         merged["auto_k"] = {**DEFAULT_SETTINGS["auto_k"], **merged.get("auto_k", {})}
+        merged["segment_rules"] = {**DEFAULT_SETTINGS["segment_rules"], **merged.get("segment_rules", {})}
         return merged
 
     if os.path.exists(SETTINGS_PATH):
@@ -36,6 +51,7 @@ def load_settings() -> dict:
             merged.update(s2)
             merged["rfm_weights"] = {**DEFAULT_SETTINGS["rfm_weights"], **merged.get("rfm_weights", {})}
             merged["auto_k"] = {**DEFAULT_SETTINGS["auto_k"], **merged.get("auto_k", {})}
+            merged["segment_rules"] = {**DEFAULT_SETTINGS["segment_rules"], **merged.get("segment_rules", {})}
             st.session_state["settings"] = merged
             return merged
         except Exception:
@@ -102,7 +118,7 @@ def add_weighted_scores(scored: pd.DataFrame, weights: dict) -> pd.DataFrame:
     return df
 
 
-def describe_segments_weighted(scored: pd.DataFrame, weights: dict) -> pd.DataFrame:
+def describe_segments_weighted(scored: pd.DataFrame, weights: dict, segment_rules: dict) -> pd.DataFrame:
     wR = float(weights.get("R", 1.0))
     wF = float(weights.get("F", 1.0))
     wM = float(weights.get("M", 1.0))
@@ -110,28 +126,41 @@ def describe_segments_weighted(scored: pd.DataFrame, weights: dict) -> pd.DataFr
     max_R = 5.0 * wR
     max_FM = 5.0 * wF + 5.0 * wM
 
+    vip_r_min = float(segment_rules.get("vip_r_min", 0.8))
+    vip_fm_min = float(segment_rules.get("vip_fm_min", 0.8))
+    loyal_r_min = float(segment_rules.get("loyal_r_min", 0.8))
+    loyal_fm_min = float(segment_rules.get("loyal_fm_min", 0.6))
+    potential_r_min = float(segment_rules.get("potential_r_min", 0.6))
+    potential_fm_min = float(segment_rules.get("potential_fm_min", 0.6))
+    risk_r_max = float(segment_rules.get("risk_r_max", 0.4))
+    risk_fm_min = float(segment_rules.get("risk_fm_min", 0.7))
+    lost_r_max = float(segment_rules.get("lost_r_max", 0.4))
+    lost_fm_max = float(segment_rules.get("lost_fm_max", 0.4))
+    new_r_min = float(segment_rules.get("new_r_min", 0.8))
+    new_fm_max = float(segment_rules.get("new_fm_max", 0.4))
+
     df = scored.copy()
 
     def label(row):
         r = row["R_weighted"]
         fm = row["FM_weighted"]
 
-        if r >= 0.8 * max_R and fm >= 0.8 * max_FM:
+        if r >= vip_r_min * max_R and fm >= vip_fm_min * max_FM:
             return "VIP / Šampióni"
 
-        if r >= 0.8 * max_R and fm >= 0.6 * max_FM:
+        if r >= loyal_r_min * max_R and fm >= loyal_fm_min * max_FM:
             return "Lojálni / Aktívni"
 
-        if r >= 0.6 * max_R and fm >= 0.6 * max_FM:
+        if r >= potential_r_min * max_R and fm >= potential_fm_min * max_FM:
             return "Potenciálne lojálni"
 
-        if r <= 0.4 * max_R and fm >= 0.7 * max_FM:
+        if r <= risk_r_max * max_R and fm >= risk_fm_min * max_FM:
             return "Ohrození (vysoká hodnota)"
 
-        if r <= 0.4 * max_R and fm <= 0.4 * max_FM:
+        if r <= lost_r_max * max_R and fm <= lost_fm_max * max_FM:
             return "Stratení"
 
-        if r >= 0.8 * max_R and fm <= 0.4 * max_FM:
+        if r >= new_r_min * max_R and fm <= new_fm_max * max_FM:
             return "Noví / nízka útrata"
 
         return "Bežní"
@@ -289,6 +318,7 @@ RFM = **Recency, Frequency, Monetary**
 
 settings = load_settings()
 weights = settings.get("rfm_weights", {"R": 1.0, "F": 1.0, "M": 1.0})
+segment_rules = settings.get("segment_rules", DEFAULT_SETTINGS["segment_rules"])
 
 df = st.session_state.get("df_transactions")
 dataset_id = st.session_state.get("active_dataset_id")
@@ -312,7 +342,7 @@ if st.button("▶️ Spustiť výpočet RFM"):
     rfm = compute_rfm(df, snapshot_date)
     rfm_scored = rfm_scoring_quintiles(rfm)
     rfm_scored = add_weighted_scores(rfm_scored, weights)
-    rfm_scored = describe_segments_weighted(rfm_scored, weights)
+    rfm_scored = describe_segments_weighted(rfm_scored, weights, segment_rules)
 
     st.session_state["df_rfm"] = rfm_scored
     save_rfm_to_disk(rfm_scored, dataset_id)

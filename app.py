@@ -9,8 +9,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# ---------------- TITLE ----------------
-
 st.title("📊 Segmify - systém segmentácie zákazníkov")
 
 st.markdown("""
@@ -28,13 +26,10 @@ Táto aplikácia umožňuje:
 
 st.divider()
 
-# ---------------- LOAD DATA ----------------
-
 df_tx = st.session_state.get("df_transactions")
 df_rfm = st.session_state.get("df_rfm")
 df_clusters = st.session_state.get("df_clusters")
 
-# ---------------- KPI ----------------
 
 st.subheader("📊 Prehľad")
 
@@ -75,7 +70,6 @@ col3.metric("Segmentácia pripravená", "✅" if df_clusters is not None else "�
 
 st.divider()
 
-# ---------------- NAVIGATION ----------------
 
 st.subheader("🚀 Rýchla navigácia")
 
