@@ -1,8 +1,65 @@
+import os
+import json
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 
 STD_CUSTOMER = "customer_id"
+SETTINGS_PATH = "data/settings.json"
+
+DEFAULT_SETTINGS = {
+    "rfm_weights": {"R": 1.0, "F": 1.0, "M": 1.0},
+    "default_scaler": "StandardScaler",
+    "auto_k": {"k_min": 2, "k_max": 10},
+    "segmentation_default_algorithm": "K-Means",
+    "segment_rules": {
+        "vip_r_min": 0.8,
+        "vip_fm_min": 0.8,
+        "loyal_r_min": 0.8,
+        "loyal_fm_min": 0.6,
+        "potential_r_min": 0.6,
+        "potential_fm_min": 0.6,
+        "risk_r_max": 0.4,
+        "risk_fm_min": 0.7,
+        "lost_r_max": 0.4,
+        "lost_fm_max": 0.4,
+        "new_r_min": 0.8,
+        "new_fm_max": 0.4,
+    },
+}
+
+
+def ensure_data_dir():
+    os.makedirs("data", exist_ok=True)
+
+
+def load_settings():
+    s = st.session_state.get("settings")
+    if isinstance(s, dict):
+        merged = DEFAULT_SETTINGS.copy()
+        merged.update(s)
+        merged["rfm_weights"] = {**DEFAULT_SETTINGS["rfm_weights"], **merged.get("rfm_weights", {})}
+        merged["auto_k"] = {**DEFAULT_SETTINGS["auto_k"], **merged.get("auto_k", {})}
+        merged["segment_rules"] = {**DEFAULT_SETTINGS["segment_rules"], **merged.get("segment_rules", {})}
+        return merged
+
+    ensure_data_dir()
+    if os.path.exists(SETTINGS_PATH):
+        try:
+            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                s2 = json.load(f)
+            merged = DEFAULT_SETTINGS.copy()
+            merged.update(s2)
+            merged["rfm_weights"] = {**DEFAULT_SETTINGS["rfm_weights"], **merged.get("rfm_weights", {})}
+            merged["auto_k"] = {**DEFAULT_SETTINGS["auto_k"], **merged.get("auto_k", {})}
+            merged["segment_rules"] = {**DEFAULT_SETTINGS["segment_rules"], **merged.get("segment_rules", {})}
+            st.session_state["settings"] = merged
+            return merged
+        except Exception:
+            pass
+
+    st.session_state["settings"] = DEFAULT_SETTINGS.copy()
+    return DEFAULT_SETTINGS.copy()
 
 
 def get_best_available_df():
@@ -54,6 +111,9 @@ def segment_recommendation(row: pd.Series) -> str:
 
 st.title("🎯 Marketingové odporúčania")
 
+settings = load_settings()
+rules = settings["segment_rules"]
+
 df, mode = get_best_available_df()
 if df is None:
     st.warning("Najprv spusti **RFM analýzu** a ideálne aj **segmentáciu**.")
@@ -78,25 +138,26 @@ Na základe toho vznikajú segmenty.
 """)
 
 with st.expander("📐 Logika segmentácie (pravidlá)"):
-    st.code("""
-VIP / Šampióni:
-R ≥ 80 % maxima A (F+M) ≥ 80 % maxima
+    st.markdown(f"""
+**VIP / Šampióni**  
+R ≥ **{rules["vip_r_min"] * 100:.0f} %** maxima a (F+M) ≥ **{rules["vip_fm_min"] * 100:.0f} %** maxima
 
-Lojálni / Aktívni:
-R ≥ 80 % A (F+M) ≥ 60 %
+**Lojálni / Aktívni**  
+R ≥ **{rules["loyal_r_min"] * 100:.0f} %** a (F+M) ≥ **{rules["loyal_fm_min"] * 100:.0f} %**
 
-Potenciálne lojálni:
-R ≥ 60 % A (F+M) ≥ 60 %
+**Potenciálne lojálni**  
+R ≥ **{rules["potential_r_min"] * 100:.0f} %** a (F+M) ≥ **{rules["potential_fm_min"] * 100:.0f} %**
 
-Ohrození:
-R ≤ 40 % A (F+M) ≥ 70 %
+**Ohrození**  
+R ≤ **{rules["risk_r_max"] * 100:.0f} %** a (F+M) ≥ **{rules["risk_fm_min"] * 100:.0f} %**
 
-Stratení:
-R ≤ 40 % A (F+M) ≤ 40 %
+**Stratení**  
+R ≤ **{rules["lost_r_max"] * 100:.0f} %** a (F+M) ≤ **{rules["lost_fm_max"] * 100:.0f} %**
 
-Noví / Nízka útrata:
-R ≥ 80 % A (F+M) ≤ 40 %
+**Noví / Nízka útrata**  
+R ≥ **{rules["new_r_min"] * 100:.0f} %** a (F+M) ≤ **{rules["new_fm_max"] * 100:.0f} %**
 """)
+    st.caption("Tieto pravidlá je možné upraviť na stránke Nastavenia.")
 
 st.markdown("### 🏷 Význam segmentov")
 
