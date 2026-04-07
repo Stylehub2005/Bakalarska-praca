@@ -159,6 +159,12 @@ def delete_rfm_from_disk(dataset_id: str) -> None:
         os.remove(path)
 
 
+def centered_chart(fig, ratio=(1, 5, 1)):
+    left, center, right = st.columns(ratio)
+    with center:
+        st.plotly_chart(fig, use_container_width=True)
+
+
 def render_interpretation(df_rfm: pd.DataFrame) -> None:
     st.markdown("### 📈 Interpretácia dát")
 
@@ -245,7 +251,6 @@ def render_interpretation(df_rfm: pd.DataFrame) -> None:
                 "Silné zastúpenie segmentu **VIP / Šampióni** naznačuje kvalitnú bázu vysoko hodnotných zákazníkov."
             )
 
-    # --- Quick statistical summary ---
     with st.expander("📌 Stručné štatistické zhrnutie"):
         summary_df = pd.DataFrame({
             "Ukazovateľ": [
@@ -266,7 +271,6 @@ def render_interpretation(df_rfm: pd.DataFrame) -> None:
             ]
         })
         st.dataframe(summary_df, use_container_width=True)
-
 
 
 st.title("📊 RFM analýza")
@@ -344,44 +348,78 @@ render_interpretation(df_rfm)
 
 st.subheader("Frekvenčné kategórie")
 
-bins = [0, 1, 2, 3, 5, 10, 50]
-labels = ["1", "2", "3", "4-5", "6-10", "10+"]
+bins = [0, 1, 2, 3, 5, 10, float("inf")]
+labels = ["1 nákup", "2 nákupy", "3 nákupy", "4–5 nákupov", "6–10 nákupov", "11+ nákupov"]
 
-df_rfm["frequency_group"] = pd.cut(df_rfm["frequency"], bins=bins, labels=labels)
+df_rfm["frequency_group"] = pd.cut(
+    df_rfm["frequency"],
+    bins=bins,
+    labels=labels,
+    include_lowest=True,
+    ordered=True
+)
 
 freq_counts = (
     df_rfm["frequency_group"]
     .value_counts()
-    .sort_index()
+    .reindex(labels, fill_value=0)
     .reset_index()
 )
 
 freq_counts.columns = ["Frekvenčná skupina", "Počet zákazníkov"]
 
-st.plotly_chart(
-    px.bar(
-        freq_counts,
-        x="Frekvenčná skupina",
-        y="Počet zákazníkov",
-        title="Rozdelenie zákazníkov podľa frekvencie nákupov"
-    ),
-    use_container_width=True
+st.caption("Graf zobrazuje, koľko zákazníkov patrí do jednotlivých skupín podľa počtu nákupov.")
+
+fig_freq = px.bar(
+    freq_counts,
+    x="Frekvenčná skupina",
+    y="Počet zákazníkov",
+    text="Počet zákazníkov",
+    title="Rozdelenie zákazníkov podľa frekvencie nákupov"
 )
+
+fig_freq.update_traces(textposition="outside")
+fig_freq.update_layout(
+    height=420,
+    xaxis_title="Frekvenčná skupina",
+    yaxis_title="Počet zákazníkov",
+    bargap=0.35
+)
+
+centered_chart(fig_freq)
 
 st.subheader("Extrémne hodnoty monetárnej hodnoty")
 
 q99 = df_rfm["monetary"].quantile(0.99)
+max_monetary = df_rfm["monetary"].max()
+outliers_count = (df_rfm["monetary"] > q99).sum()
 
-st.markdown(f"""
-Top 1 % zákazníkov má monetárnu hodnotu vyššiu ako približne **{q99:.2f}**.
-To naznačuje prítomnosť malej skupiny zákazníkov s nadpriemerným prínosom pre tržby.
+st.markdown("""
+Pre lepšiu čitateľnosť je graf zobrazený **do 99. percentilu**.  
+Extrémne hodnoty nad týmto limitom sú zhrnuté samostatne nižšie.
 """)
 
-st.plotly_chart(
-    px.box(df_rfm, y="monetary", title="Extrémne hodnoty monetárnej hodnoty"),
-    use_container_width=True
+c1, c2, c3 = st.columns(3)
+c1.metric("99. percentil", f"{q99:.2f}")
+c2.metric("Počet extrémnych zákazníkov", f"{outliers_count}")
+c3.metric("Maximálna hodnota", f"{max_monetary:.2f}")
+
+df_box = df_rfm.copy()
+df_box["monetary_capped"] = df_box["monetary"].clip(upper=q99)
+
+fig_monetary = px.box(
+    df_box,
+    y="monetary_capped",
+    points=False,
+    title="Monetárna hodnota zákazníkov (do 99. percentilu)"
 )
 
+fig_monetary.update_layout(
+    height=420,
+    yaxis_title="Monetárna hodnota"
+)
+
+centered_chart(fig_monetary)
 
 st.subheader("Prehľad segmentov")
 
