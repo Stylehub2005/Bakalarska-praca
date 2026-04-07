@@ -159,7 +159,115 @@ def delete_rfm_from_disk(dataset_id: str) -> None:
         os.remove(path)
 
 
-# ================= UI =================
+def render_interpretation(df_rfm: pd.DataFrame) -> None:
+    st.markdown("### 📈 Interpretácia dát")
+
+    median_recency = float(df_rfm["recency"].median())
+    median_frequency = float(df_rfm["frequency"].median())
+    median_monetary = float(df_rfm["monetary"].median())
+
+    one_time_share = (df_rfm["frequency"] == 1).mean() * 100
+    repeat_share = (df_rfm["frequency"] >= 2).mean() * 100
+
+    recent_share = (df_rfm["recency"] <= median_recency).mean() * 100
+    inactive_share = (df_rfm["recency"] > df_rfm["recency"].quantile(0.75)).mean() * 100
+
+    top_10pct_threshold = df_rfm["monetary"].quantile(0.90)
+    revenue_total = df_rfm["monetary"].sum()
+    top_10pct_revenue_share = (
+        df_rfm.loc[df_rfm["monetary"] >= top_10pct_threshold, "monetary"].sum() / revenue_total * 100
+        if revenue_total > 0 else 0
+    )
+
+    dominant_segment = None
+    dominant_segment_share = None
+    if "Segment_label" in df_rfm.columns:
+        seg_dist = df_rfm["Segment_label"].value_counts(normalize=True) * 100
+        dominant_segment = seg_dist.index[0]
+        dominant_segment_share = seg_dist.iloc[0]
+
+    if df_rfm["frequency"].skew() > 1:
+        st.warning("Väčšina zákazníkov nakupuje málo, čo je typické pre e-commerce prostredie.")
+
+    if one_time_share >= 50:
+        st.info(
+            f"Až **{one_time_share:.1f} %** zákazníkov nakúpilo iba raz. "
+            "To naznačuje priestor na zlepšenie retencie a podpory opakovaných nákupov."
+        )
+    else:
+        st.info(
+            f"Podiel jednorazových zákazníkov je **{one_time_share:.1f} %**, "
+            f"pričom **{repeat_share:.1f} %** zákazníkov nakúpilo opakovane."
+        )
+
+    st.info(
+        f"Medián recencie je **{median_recency:.0f} dní**, čo znamená, "
+        "že polovica zákazníkov nakúpila v tomto intervale alebo nedávnejšie."
+    )
+
+    if inactive_share >= 25:
+        st.warning(
+            f"Približne **{inactive_share:.1f} %** zákazníkov patrí medzi menej aktívnych "
+            "z pohľadu recencie. Môže ísť o vhodnú cieľovú skupinu pre reaktivačné kampane."
+        )
+
+    st.info(
+        f"Medián celkovej hodnoty nákupov na zákazníka je **{median_monetary:.2f}**, "
+        "čo pomáha odlíšiť bežných a nadpriemerne hodnotných zákazníkov."
+    )
+
+    if top_10pct_revenue_share >= 40:
+        st.warning(
+            f"Top 10 % zákazníkov generuje približne **{top_10pct_revenue_share:.1f} %** celkových tržieb. "
+            "To naznačuje výraznú koncentráciu hodnoty u malej skupiny zákazníkov."
+        )
+    else:
+        st.info(
+            f"Top 10 % zákazníkov generuje približne **{top_10pct_revenue_share:.1f} %** celkových tržieb."
+        )
+
+    if dominant_segment is not None:
+        st.success(
+            f"Najväčší segment je **{dominant_segment}**, ktorý tvorí približne "
+            f"**{dominant_segment_share:.1f} %** zákazníkov."
+        )
+
+        if dominant_segment == "Stratení":
+            st.warning(
+                "Dominancia segmentu **Stratení** môže signalizovať problém s udržaním zákazníkov."
+            )
+        elif dominant_segment == "Ohrození (vysoká hodnota)":
+            st.warning(
+                "Výrazné zastúpenie segmentu **Ohrození (vysoká hodnota)** znamená riziko straty cenných zákazníkov."
+            )
+        elif dominant_segment == "VIP / Šampióni":
+            st.success(
+                "Silné zastúpenie segmentu **VIP / Šampióni** naznačuje kvalitnú bázu vysoko hodnotných zákazníkov."
+            )
+
+    # --- Quick statistical summary ---
+    with st.expander("📌 Stručné štatistické zhrnutie"):
+        summary_df = pd.DataFrame({
+            "Ukazovateľ": [
+                "Medián recencie (dni)",
+                "Medián frekvencie",
+                "Medián monetárnej hodnoty",
+                "Podiel jednorazových zákazníkov (%)",
+                "Podiel opakovaných zákazníkov (%)",
+                "Podiel top 10 % zákazníkov na tržbách (%)",
+            ],
+            "Hodnota": [
+                round(median_recency, 2),
+                round(median_frequency, 2),
+                round(median_monetary, 2),
+                round(one_time_share, 2),
+                round(repeat_share, 2),
+                round(top_10pct_revenue_share, 2),
+            ]
+        })
+        st.dataframe(summary_df, use_container_width=True)
+
+
 
 st.title("📊 RFM analýza")
 
@@ -232,10 +340,7 @@ st.plotly_chart(
     use_container_width=True
 )
 
-st.markdown("### 📈 Interpretácia dát")
-
-if df_rfm["frequency"].skew() > 1:
-    st.warning("Väčšina zákazníkov nakupuje málo → typické pre e-commerce")
+render_interpretation(df_rfm)
 
 st.subheader("Frekvenčné kategórie")
 
@@ -267,8 +372,9 @@ st.subheader("Extrémne hodnoty monetárnej hodnoty")
 
 q99 = df_rfm["monetary"].quantile(0.99)
 
-st.markdown("""
-Top 1 % zákazníkov generuje extrémne vysoké tržby.
+st.markdown(f"""
+Top 1 % zákazníkov má monetárnu hodnotu vyššiu ako približne **{q99:.2f}**.
+To naznačuje prítomnosť malej skupiny zákazníkov s nadpriemerným prínosom pre tržby.
 """)
 
 st.plotly_chart(
@@ -276,7 +382,6 @@ st.plotly_chart(
     use_container_width=True
 )
 
-# ================= SEGMENTS =================
 
 st.subheader("Prehľad segmentov")
 
