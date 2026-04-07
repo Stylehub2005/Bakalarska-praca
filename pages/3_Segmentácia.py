@@ -20,7 +20,6 @@ DEFAULT_SETTINGS = {
 }
 
 
-
 def load_settings():
     s = st.session_state.get("settings")
 
@@ -40,7 +39,6 @@ def load_settings():
     return DEFAULT_SETTINGS
 
 
-
 def load_rfm(dataset_id):
     df = st.session_state.get("df_rfm")
     if df is not None:
@@ -49,7 +47,6 @@ def load_rfm(dataset_id):
     if os.path.exists(path):
         return pd.read_parquet(path)
     return None
-
 
 
 def scaler_from_name(name):
@@ -77,9 +74,7 @@ def compute_k_metrics(X_scaled, k_min, k_max):
     results = []
 
     for k in range(k_min, k_max + 1):
-
         model = KMeans(n_clusters=k, random_state=42, n_init="auto")
-
         labels = model.fit_predict(X_scaled)
 
         inertia = model.inertia_
@@ -87,7 +82,7 @@ def compute_k_metrics(X_scaled, k_min, k_max):
         sil = None
         try:
             sil = silhouette_score(X_scaled, labels)
-        except:
+        except Exception:
             pass
 
         results.append({
@@ -96,7 +91,65 @@ def compute_k_metrics(X_scaled, k_min, k_max):
             "silhouette": sil
         })
 
-    return pd.DataFrame(results)
+    df = pd.DataFrame(results).sort_values("k").reset_index(drop=True)
+
+    df["inertia_drop"] = df["inertia"].shift(1) - df["inertia"]
+    df["inertia_drop_pct"] = (df["inertia_drop"] / df["inertia"].shift(1) * 100).round(2)
+
+    elbow_scores = [None] * len(df)
+    for i in range(1, len(df) - 1):
+        prev_drop = df.loc[i - 1, "inertia"] - df.loc[i, "inertia"]
+        next_drop = df.loc[i, "inertia"] - df.loc[i + 1, "inertia"]
+        elbow_scores[i] = prev_drop - next_drop
+
+    df["elbow_score"] = elbow_scores
+
+    return df
+
+
+def _normalize_series(s: pd.Series) -> pd.Series:
+    s = s.astype(float)
+    if s.nunique(dropna=True) <= 1:
+        return pd.Series([1.0] * len(s), index=s.index)
+    return (s - s.min()) / (s.max() - s.min())
+
+
+def recommend_best_k(k_metrics: pd.DataFrame) -> tuple[int | None, pd.DataFrame]:
+    df = k_metrics.copy()
+
+    valid = df.dropna(subset=["silhouette"]).copy()
+    if valid.empty:
+        return None, df
+
+    sil_k2 = valid.loc[valid["k"] == 2, "silhouette"]
+    sil_k2 = float(sil_k2.iloc[0]) if not sil_k2.empty else None
+
+    valid_3plus = valid[valid["k"] >= 3].copy()
+
+    if not valid_3plus.empty:
+        valid_3plus["silhouette_norm"] = _normalize_series(valid_3plus["silhouette"])
+        valid_3plus["elbow_score_filled"] = valid_3plus["elbow_score"].fillna(0)
+        valid_3plus["elbow_norm"] = _normalize_series(valid_3plus["elbow_score_filled"])
+        valid_3plus["recommendation_score"] = (
+            0.6 * valid_3plus["silhouette_norm"] + 0.4 * valid_3plus["elbow_norm"]
+        )
+
+        best_3plus = valid_3plus.sort_values(
+            ["recommendation_score", "silhouette", "elbow_score"],
+            ascending=False
+        ).iloc[0]
+
+        best_3plus_k = int(best_3plus["k"])
+        best_3plus_sil = float(best_3plus["silhouette"])
+
+        # Ak je k=2 iba mierne lepšie ako 3+, preferujeme interpretovateľnejšie riešenie s 3+ klastrami.
+        if sil_k2 is not None and (sil_k2 - best_3plus_sil) > 0.15:
+            return 2, df
+
+        return best_3plus_k, df
+
+    best = valid.sort_values("silhouette", ascending=False).iloc[0]
+    return int(best["k"]), df
 
 
 st.title("🧠 Segmentácia zákazníkov")
@@ -127,7 +180,6 @@ if df_rfm is None:
     st.warning("Najprv spusti RFM analýzu")
     st.stop()
 
-
 st.subheader("⚙️ Nastavenia segmentácie")
 
 features_all = [
@@ -157,10 +209,7 @@ k_max = settings["auto_k"]["k_max"]
 
 k = None
 if algorithm in ["K-Means", "Hierarchical"]:
-
     k = st.slider("Počet klastrov (k)", k_min, k_max, 4)
-
-
 
 col1, col2, col3 = st.columns(3)
 
@@ -173,8 +222,6 @@ with col2:
 with col3:
     reset_button = st.button("🔄 Resetovať")
 
-
-
 if reset_button:
     st.session_state.pop("df_clusters", None)
     st.session_state.pop("k_metrics", None)
@@ -183,25 +230,18 @@ if reset_button:
     st.success("Nastavenia boli resetované")
     st.rerun()
 
-
-
 if auto_k_button:
-
     X_scaled = prepare_features(df_rfm, features, scaler_name, weights)
 
     k_metrics = compute_k_metrics(X_scaled, k_min, k_max)
+    best_k, k_metrics = recommend_best_k(k_metrics)
 
     st.session_state["k_metrics"] = k_metrics
-
-    best = k_metrics.sort_values("silhouette", ascending=False).iloc[0]
-
-    st.session_state["best_k"] = int(best["k"])
-
+    st.session_state["best_k"] = best_k
 
 k_metrics = st.session_state.get("k_metrics")
 
 if k_metrics is not None:
-
     st.subheader("📊 Analýza optimálneho k")
 
     col1, col2 = st.columns(2)
@@ -217,7 +257,8 @@ if k_metrics is not None:
                     "k": "Počet klastrov",
                     "inertia": "Inertia (variancia)"
                 }
-            )
+            ),
+            use_container_width=True
         )
 
     with col2:
@@ -231,21 +272,38 @@ if k_metrics is not None:
                     "k": "Počet klastrov",
                     "silhouette": "Silhouette skóre"
                 }
-            )
+            ),
+            use_container_width=True
         )
+
+    st.markdown("### 🧾 Diagnostika výberu k")
+
+    preview = k_metrics.copy()
+    preview = preview.rename(columns={
+        "k": "Počet klastrov",
+        "inertia": "Inertia",
+        "silhouette": "Silhouette skóre",
+        "inertia_drop": "Pokles inertia",
+        "inertia_drop_pct": "Pokles inertia (%)",
+        "elbow_score": "Elbow skóre"
+    })
+
+    st.dataframe(preview, use_container_width=True)
 
     best_k = st.session_state.get("best_k")
 
     if best_k:
         st.success(f"Odporúčané k = {best_k}")
-
+        st.info(
+            "Odporúčanie je založené na kombinácii **Silhouette skóre** a **Elbow princípu**, "
+            "nie iba na maximálnej hodnote silhouette. "
+            "Tým sa znižuje riziko, že model automaticky preferuje príliš jednoduché riešenie s k = 2."
+        )
 
 if run_cluster:
-
     X_scaled = prepare_features(df_rfm, features, scaler_name, weights)
 
     if algorithm == "K-Means":
-
         model = KMeans(
             n_clusters=k,
             random_state=42,
@@ -253,11 +311,9 @@ if run_cluster:
         )
 
     elif algorithm == "DBSCAN":
-
         model = DBSCAN()
 
     else:
-
         model = AgglomerativeClustering(
             n_clusters=k,
             linkage="ward",
@@ -267,24 +323,20 @@ if run_cluster:
     labels = model.fit_predict(X_scaled)
 
     df_clusters = df_rfm.copy()
-
     df_clusters["cluster"] = labels
 
     st.session_state["df_clusters"] = df_clusters
 
     st.success("Segmentácia bola dokončená")
 
-
 df_clusters = st.session_state.get("df_clusters")
 
 if df_clusters is None:
     st.stop()
 
-
 st.subheader("Veľkosti klastrov")
 
 counts = df_clusters["cluster"].value_counts().reset_index()
-
 counts.columns = ["Klaster", "Počet zákazníkov"]
 
 st.dataframe(counts)
@@ -295,24 +347,18 @@ st.plotly_chart(
         x="Klaster",
         y="Počet zákazníkov",
         title="Veľkosť jednotlivých klastrov"
-    )
+    ),
+    use_container_width=True
 )
-
 
 st.subheader("Profil klastrov")
 
 profile = df_clusters.groupby("cluster").agg(
-
     customers=(STD_CUSTOMER, "count"),
-
     avg_recency=("recency", "mean"),
-
     avg_frequency=("frequency", "mean"),
-
     avg_monetary=("monetary", "mean"),
-
 ).reset_index()
-
 
 profile.columns = [
     "Klaster",
@@ -323,7 +369,6 @@ profile.columns = [
 ]
 
 st.dataframe(profile)
-
 
 st.subheader("Vizualizácia")
 
@@ -339,9 +384,9 @@ st.plotly_chart(
             "cluster": "Klaster"
         },
         title="Rozdelenie klastrov (2D)"
-    )
+    ),
+    use_container_width=True
 )
-
 
 st.plotly_chart(
     px.scatter_3d(
@@ -357,8 +402,8 @@ st.plotly_chart(
             "cluster": "Klaster"
         },
         title="Rozdelenie klastrov (3D)"
-    )
+    ),
+    use_container_width=True
 )
-
 
 st.success("Segmentácia pripravená")
