@@ -50,6 +50,63 @@ def resample_freq(df, rule):
     return out.reset_index()
 
 
+def build_growth_diagnostics(df_f, seg_mode):
+    tmp = df_f.copy()
+    tmp["month"] = tmp[STD_DATE].dt.to_period("M")
+
+    growth = (
+        tmp
+        .groupby(["month", seg_mode])[STD_AMOUNT]
+        .sum()
+        .reset_index()
+    )
+
+    pivot = growth.pivot(
+        index="month",
+        columns=seg_mode,
+        values=STD_AMOUNT
+    ).sort_index()
+
+    growth_change = pivot.pct_change()
+
+    growth_rate = growth_change.mean().sort_values(ascending=False)
+    gdf = growth_rate.reset_index()
+    gdf.columns = ["Segment", "Priemerný rast"]
+
+    events = []
+    for segment in growth_change.columns:
+        series = growth_change[segment].dropna()
+        if series.empty:
+            continue
+
+        best_period = series.idxmax()
+        worst_period = series.idxmin()
+        best_value = series.max()
+        worst_value = series.min()
+
+        prev_best = best_period - 1
+        prev_worst = worst_period - 1
+
+        events.append({
+            "Segment": segment,
+            "Najlepší rast (%)": round(best_value * 100, 2),
+            "Obdobie rastu": f"{prev_best} → {best_period}",
+            "Najväčší pokles (%)": round(worst_value * 100, 2),
+            "Obdobie poklesu": f"{prev_worst} → {worst_period}",
+        })
+
+    events_df = pd.DataFrame(events)
+
+    best_event = None
+    worst_event = None
+
+    if not events_df.empty:
+        best_event = events_df.loc[events_df["Najlepší rast (%)"].idxmax()].to_dict()
+        worst_event = events_df.loc[events_df["Najväčší pokles (%)"].idxmin()].to_dict()
+
+    return gdf, events_df, best_event, worst_event
+
+
 # ================= UI =================
 
 st.title("📈 Trendy a monitorovanie")
@@ -116,12 +173,10 @@ with st.form("filters"):
 if not run:
     st.stop()
 
-
 df_f = df[
     (df[STD_DATE] >= pd.to_datetime(start))
     & (df[STD_DATE] <= pd.to_datetime(end))
 ]
-
 
 rule = {
     "Day": "D",
@@ -129,9 +184,7 @@ rule = {
     "Month": "M"
 }[gran]
 
-
 trend = resample_freq(df_f, rule)
-
 
 # -------- KPI --------
 
@@ -159,7 +212,6 @@ c4.metric(
     f"{df_f[STD_AMOUNT].mean():.2f}"
 )
 
-
 # -------- TRENDS --------
 
 st.subheader("📈 Hlavné trendy")
@@ -179,7 +231,6 @@ fig1.update_layout(height=300)
 
 st.plotly_chart(fig1, use_container_width=True)
 
-
 fig2 = px.line(
     trend,
     x=STD_DATE,
@@ -195,7 +246,6 @@ fig2.update_layout(height=300)
 
 st.plotly_chart(fig2, use_container_width=True)
 
-
 fig3 = px.line(
     trend,
     x=STD_DATE,
@@ -210,7 +260,6 @@ fig3 = px.line(
 fig3.update_layout(height=300)
 
 st.plotly_chart(fig3, use_container_width=True)
-
 
 # -------- SEGMENT TRENDS --------
 
@@ -228,7 +277,9 @@ if seg_mode in df_f.columns:
         .reset_index()
     )
 
-    fig = px.area(
+    st.markdown("### Súhrnný pohľad")
+
+    fig = px.line(
         seg_rev,
         x=STD_DATE,
         y=STD_AMOUNT,
@@ -242,10 +293,30 @@ if seg_mode in df_f.columns:
         title="Vývoj tržieb podľa segmentov"
     )
 
-    fig.update_layout(height=350)
+    fig.update_layout(height=400)
 
     st.plotly_chart(fig, use_container_width=True)
 
+    st.markdown("### Detailné grafy jednotlivých segmentov")
+
+    segments = seg_rev[seg_mode].dropna().unique().tolist()
+
+    for segment in segments:
+        seg_single = seg_rev[seg_rev[seg_mode] == segment].copy()
+
+        fig_single = px.line(
+            seg_single,
+            x=STD_DATE,
+            y=STD_AMOUNT,
+            markers=True,
+            title=f"Segment {segment} – vývoj tržieb",
+            labels={
+                STD_DATE: "Dátum",
+                STD_AMOUNT: "Tržby"
+            }
+        )
+        fig_single.update_layout(height=300)
+        st.plotly_chart(fig_single, use_container_width=True)
 
 # -------- Revenue share --------
 
@@ -270,7 +341,6 @@ if seg_mode in df_f.columns:
         seg_summary["revenue"] / total * 100
     ).round(2)
 
-
     seg_summary.columns = [
         "Segment",
         "Počet zákazníkov",
@@ -280,7 +350,6 @@ if seg_mode in df_f.columns:
     ]
 
     st.dataframe(seg_summary)
-
 
     fig = px.pie(
         seg_summary,
@@ -292,7 +361,6 @@ if seg_mode in df_f.columns:
     fig.update_layout(height=350)
 
     st.plotly_chart(fig, use_container_width=True)
-
 
 # -------- comparison --------
 
@@ -325,54 +393,31 @@ if seg_mode in df_f.columns:
         comp.sort_values("Tržby", ascending=False)
     )
 
-
 # -------- growth --------
 
 st.subheader("📈 Rast segmentov")
 
 if seg_mode in df_f.columns:
 
-    df_f["month"] = df_f[STD_DATE].dt.to_period("M")
-
-    growth = (
-        df_f
-        .groupby(["month", seg_mode])[STD_AMOUNT]
-        .sum()
-        .reset_index()
-    )
-
-    pivot = growth.pivot(
-        index="month",
-        columns=seg_mode,
-        values=STD_AMOUNT
-    )
-
-    growth_rate = (
-        pivot
-        .pct_change()
-        .mean()
-        .sort_values(ascending=False)
-    )
-
-
-    gdf = growth_rate.reset_index()
-
-    gdf.columns = [
-        "Segment",
-        "Priemerný rast"
-    ]
-
+    gdf, events_df, best_event, worst_event = build_growth_diagnostics(df_f, seg_mode)
 
     st.dataframe(gdf)
 
+    if best_event is not None:
+        st.success(
+            f"🚀 Najrýchlejšie rástol segment **{best_event['Segment']}** "
+            f"v období **{best_event['Obdobie rastu']}** "
+            f"({best_event['Najlepší rast (%)']:.2f} %)."
+        )
 
-    st.success(
-        f"🚀 Najrýchlejšie rastie: {gdf.iloc[0]['Segment']}"
-    )
+    if worst_event is not None:
+        st.warning(
+            f"📉 Najväčší pokles mal segment **{worst_event['Segment']}** "
+            f"v období **{worst_event['Obdobie poklesu']}** "
+            f"({worst_event['Najväčší pokles (%)']:.2f} %)."
+        )
 
-    st.warning(
-        f"📉 Najviac klesá: {gdf.iloc[-1]['Segment']}"
-    )
-
+    st.markdown("### Detail zmien podľa období")
+    st.dataframe(events_df, use_container_width=True)
 
 st.success("Monitoring pripravený")
