@@ -31,8 +31,16 @@ Aplikácia umožňuje:
 - automatická detekcia separátora,
 - mapovanie stĺpcov na štandardný formát,
 - podpora `amount` alebo výpočtu `Quantity × Price`,
-- história uložených datasetov.
+- história uložených datasetov,
+- možnosť pracovať aj s verejne dostupnými testovacími datasetmi.
 
+**Online retail II** dataset bol zároveň použitý ako referenčný zdroj pri overovaní hypotéz a pri experimentálnom posudzovaní navrhnutého modelu segmentácie:
+- [online_retail_II.zip](https://github.com/user-attachments/files/26783641/online_retail_II.zip)
+
+  Na overenie funkčnosti aplikácie a testovanie jednotlivých analytických modulov je možné využiť aj verejne dostupné datasety z platformy **Kaggle**, napríklad:
+- https://www.kaggle.com/datasets/umuttuygurr/e-commerce-customer-behavior-and-sales-analysis-tr
+- https://www.kaggle.com/datasets/logiccraftbyhimanshi/walmart-customer-purchase-behavior-dataset
+ 
 ### 📊 RFM analýza
 - výpočet metrík:
   - **Recency**
