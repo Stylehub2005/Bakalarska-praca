@@ -49,9 +49,6 @@ def test_single_purchase_customer():
     assert row["recency"] == 9
 
 
-# =============================
-# 🧪 SCENARIO 2: empty data
-# =============================
 
 def test_empty_dataframe():
     df = pd.DataFrame(columns=["customer_id", "transaction_date", "amount"])
@@ -63,9 +60,6 @@ def test_empty_dataframe():
     assert rfm.empty
 
 
-# =============================
-# 🧪 SCENARIO 3: outliers
-# =============================
 
 def test_outliers_handling():
     df = pd.DataFrame({
